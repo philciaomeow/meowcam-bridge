@@ -11,8 +11,8 @@ from typing import Any
 
 from .base import InputProfile
 from .visca import (
-    VISCA_IP_HEADER,
     VISCA_TERMINATOR,
+    _VALID_MSG_TYPES,
     build_visca_ip_packet,
     parse_visca_ip_packet,
 )
@@ -56,7 +56,7 @@ class PTZOpticsPTJoyG4SonyVISCAUDP(InputProfile):
         if data[-1] != VISCA_TERMINATOR:
             return False
         # Must NOT have VISCA-over-IP header
-        if data[:2] == VISCA_IP_HEADER:
+        if data[:2] == b'\x01\x00' or (len(data) >= 2 and int.from_bytes(data[:2], 'big') in _VALID_MSG_TYPES):
             return False
         return True
 

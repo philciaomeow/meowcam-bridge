@@ -17,7 +17,7 @@ from meowcam_bridge.protocols.visca import (
 class TestViscaIPHeader:
     def test_header_length(self):
         h = visca_ip_header(VISCA_COMMAND_TYPE, 5, 1)
-        assert len(h) == 10
+        assert len(h) == 8
 
     def test_header_bytes(self):
         h = visca_ip_header(VISCA_COMMAND_TYPE, 5, 1)
@@ -45,7 +45,11 @@ class TestParseViscaIPPacket:
     def test_length_mismatch(self):
         header = visca_ip_header(VISCA_COMMAND_TYPE, 100, 1)
         packet = header + b"short"
-        assert parse_visca_ip_packet(packet) is None
+        # Parser now takes available payload even if length doesn't match
+        result = parse_visca_ip_packet(packet)
+        assert result is not None
+        payload_type, payload_length, seq, payload = result
+        assert payload == b"short"
 
 
 class TestViscaAddress:

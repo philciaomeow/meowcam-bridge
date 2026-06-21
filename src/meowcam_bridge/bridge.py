@@ -625,7 +625,7 @@ class BridgeCore:
                 # Build a synthetic decoded command for the output profile
                 cmd = {
                     "payload": payload,
-                    "payload_type": 0x0200,  # VISCA_COMMAND_TYPE
+                    "payload_type": 0x0100,  # VISCA_COMMAND_TYPE
                     "seq": 0,
                     "framing": "visca_ip",
                 }

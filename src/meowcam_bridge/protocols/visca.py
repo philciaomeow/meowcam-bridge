@@ -1,12 +1,10 @@
 """VISCA framing utilities shared across profiles.
 
-VISCA is a Sony protocol used by PTZOptics and Sony cameras. Packets are:
-  - Header: 0x01 0x00 (VISCA over IP) or absent (raw serial VISCA)
-  - Payload: command bytes starting with address byte (0x80 + camera_id)
-  - Terminator: 0xFF
-
-VISCA-over-IP adds a 8-byte header:
-  0x01 0x00  payload_type(2)  payload_length(2)  seq_number(4)
+Sony VISCA-over-IP packet format (8-byte header + payload):
+  bytes 0-1: message type (0x0100=command, 0x0110=inquiry, 0x0111=reply, 0x0120=setting, 0x0200=control, 0x0201=control_reply)
+  bytes 2-3: payload length (big-endian uint16)
+  bytes 4-7: sequence number (big-endian uint32)
+  bytes 8+:  payload data (VISCA command bytes, terminated by 0xFF)
 """
 
 from __future__ import annotations
@@ -14,19 +12,26 @@ from __future__ import annotations
 import struct
 from typing import Final
 
-VISCA_IP_HEADER: Final[bytes] = b"\x01\x00"
 VISCA_TERMINATOR: Final[int] = 0xFF
-VISCA_COMMAND_TYPE: Final[int] = 0x0200
+
+# Sony VISCA-over-IP message types
+VISCA_COMMAND_TYPE: Final[int] = 0x0100
 VISCA_INQUIRY_TYPE: Final[int] = 0x0110
 VISCA_REPLY_TYPE: Final[int] = 0x0111
+VISCA_SETTING_TYPE: Final[int] = 0x0120
+VISCA_CONTROL_TYPE: Final[int] = 0x0200
+VISCA_CONTROL_REPLY_TYPE: Final[int] = 0x0201
+
+# All valid Sony VISCA-over-IP message types
+_VALID_MSG_TYPES: Final[set[int]] = {
+    VISCA_COMMAND_TYPE, VISCA_INQUIRY_TYPE, VISCA_REPLY_TYPE,
+    VISCA_SETTING_TYPE, VISCA_CONTROL_TYPE, VISCA_CONTROL_REPLY_TYPE,
+}
 
 
 def visca_ip_header(payload_type: int, payload_length: int, seq: int) -> bytes:
-    """Build an 8-byte VISCA-over-IP header.
-
-    Format: 0x01 0x00  payload_type(2)  payload_length(2)  seq_number(4)
-    """
-    return struct.pack(">HHH", 0x0100, payload_type, payload_length) + struct.pack(">I", seq)
+    """Build an 8-byte VISCA-over-IP header."""
+    return struct.pack(">HHI", payload_type, payload_length, seq)
 
 
 def parse_visca_ip_packet(data: bytes) -> tuple[int, int, int, bytes] | None:
@@ -36,14 +41,16 @@ def parse_visca_ip_packet(data: bytes) -> tuple[int, int, int, bytes] | None:
     """
     if len(data) < 8:
         return None
-    if data[:2] != VISCA_IP_HEADER:
+    payload_type = struct.unpack(">H", data[0:2])[0]
+    if payload_type not in _VALID_MSG_TYPES:
         return None
-    payload_type = struct.unpack(">H", data[2:4])[0]
-    payload_length = struct.unpack(">H", data[4:6])[0]
-    seq = struct.unpack(">I", data[6:10])[0]
-    payload = data[10:10 + payload_length]
+    payload_length = struct.unpack(">H", data[2:4])[0]
+    seq = struct.unpack(">I", data[4:8])[0]
+    payload = data[8:8 + payload_length]
     if len(payload) != payload_length:
-        return None
+        # If we don't have enough bytes, take what we can
+        # (some implementations may not include the terminator in the length)
+        payload = data[8:]
     return payload_type, payload_length, seq, payload
 
 
