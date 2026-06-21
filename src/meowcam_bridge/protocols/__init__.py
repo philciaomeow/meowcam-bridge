@@ -13,11 +13,11 @@ from .input_ptzoptics import PTZOpticsPTJoyG4SonyVISCAUDP
 from .output_sony_brbk import SonyBRCH900BRBKIP10
 
 _INPUT_PROFILES: dict[str, Type[InputProfile]] = {
-    PTZOpticsPTJoyG4SonyVISCAUDP.name: PTZOpticsPTJoyG4SonyVISCAUDP,
+    "ptzoptics_pt_joy_g4_sony_visca_udp": PTZOpticsPTJoyG4SonyVISCAUDP,
 }
 
 _OUTPUT_PROFILES: dict[str, Type[OutputProfile]] = {
-    SonyBRCH900BRBKIP10.name: SonyBRCH900BRBKIP10,
+    "sony_brc_h900_brbk_ip10": SonyBRCH900BRBKIP10,
 }
 
 
@@ -34,12 +34,12 @@ def list_output_profiles() -> list[str]:
 def get_input_profile(name: str) -> Type[InputProfile]:
     """Return the input profile class for the given name."""
     if name not in _INPUT_PROFILES:
-        raise KeyError(f"Unknown input profile: {name}")
+        raise KeyError(f"Unknown input profile: {name!r}")
     return _INPUT_PROFILES[name]
 
 
 def get_output_profile(name: str) -> Type[OutputProfile]:
     """Return the output profile class for the given name."""
     if name not in _OUTPUT_PROFILES:
-        raise KeyError(f"Unknown output profile: {name}")
+        raise KeyError(f"Unknown output profile: {name!r}")
     return _OUTPUT_PROFILES[name]

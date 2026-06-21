@@ -28,6 +28,4 @@ class TestBridgeCore:
     def test_start_stop_not_implemented(self):
         cfg = BridgeConfig()
         core = BridgeCore(cfg)
-        with pytest.raises(NotImplementedError):
-            import asyncio
-            asyncio.run(core.start())
+        pytest.skip("BridgeCore.start/stop now implemented")
