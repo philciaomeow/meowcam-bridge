@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MeowCam Bridge</title>
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<header>
+  <h1>MeowCam Bridge</h1>
+  <span id="status-indicator" class="badge">Loading…</span>
+</header>
+
+<nav id="tabs">
+  <button class="tab-btn active" data-tab="settings">Settings</button>
+  <button class="tab-btn" data-tab="presets">Presets</button>
+  <button class="tab-btn" data-tab="manual">Manual Control</button>
+  <button class="tab-btn" data-tab="diagnostics">Diagnostics</button>
+</nav>
+
+<main>
+  <section id="settings" class="tab-panel active">
+    <h2>Settings</h2>
+    <div class="field-row">
+      <label>Bridge IP</label>
+      <input type="text" id="bridge-ip" value="0.0.0.0" readonly>
+    </div>
+    <div class="field-row">
+      <label>Controller Profile</label>
+      <select id="controller-profile">
+        <option value="ptzoptics_pt_joy_g4_sony_visca_udp">PTZOptics PT-JOY-G4 (Sony VISCA UDP)</option>
+      </select>
+    </div>
+    <h3>Camera Routes</h3>
+    <table id="routes-table">
+      <thead>
+        <tr><th>#</th><th>Enabled</th><th>Label</th><th>Incoming Port</th><th>Output Profile</th><th>Camera IP</th><th>Camera Port</th><th>Status</th><th>Test</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <div class="actions">
+      <button id="btn-export">Export Config</button>
+      <button id="btn-import">Import Config</button>
+      <input type="file" id="import-file" accept=".json" hidden>
+    </div>
+  </section>
+
+  <section id="presets" class="tab-panel">
+    <h2>Presets</h2>
+    <div class="field-row">
+      <label>Select Camera</label>
+      <select id="preset-camera-select"></select>
+    </div>
+    <div id="preset-grid" class="grid"></div>
+  </section>
+
+  <section id="manual" class="tab-panel">
+    <h2>Manual Control</h2>
+    <div class="field-row">
+      <label>Select Camera</label>
+      <select id="manual-camera-select"></select>
+    </div>
+    <div class="controls">
+      <div class="ptz-pad">
+        <button data-cmd="pan_left">◀ Pan Left</button>
+        <button data-cmd="tilt_up">▲ Tilt Up</button>
+        <button data-cmd="tilt_down">▼ Tilt Down</button>
+        <button data-cmd="pan_right">Pan Right ▶</button>
+        <button data-cmd="stop" class="stop">Stop</button>
+      </div>
+      <div class="zoom-focus">
+        <button data-cmd="zoom_in">Zoom In +</button>
+        <button data-cmd="zoom_out">Zoom Out -</button>
+        <button data-cmd="focus_near">Focus Near</button>
+        <button data-cmd="focus_far">Focus Far</button>
+        <button data-cmd="autofocus">Autofocus Toggle</button>
+      </div>
+      <div class="preset-actions">
+        <label>Save Preset # <input type="number" id="save-preset-num" min="1" max="16" value="1"></label>
+        <button id="btn-save-preset">Save Preset</button>
+        <label>Recall Preset # <input type="number" id="recall-preset-num" min="1" max="16" value="1"></label>
+        <button id="btn-recall-preset">Recall Preset</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="diagnostics" class="tab-panel">
+    <h2>Diagnostics</h2>
+    <div class="log-view">
+      <pre id="event-log">No events yet.</pre>
+    </div>
+    <div class="stats">
+      <div><strong>Last Controller:</strong> <span id="last-controller">—</span></div>
+      <div><strong>Last Command:</strong> <span id="last-command">—</span></div>
+      <div><strong>Last Camera Reply:</strong> <span id="last-reply">—</span></div>
+      <div><strong>Routes:</strong> <span id="route-status">—</span></div>
+    </div>
+    <button id="btn-reset-routes">Reset Route States</button>
+  </section>
+</main>
+
+<footer>
+  <p>MeowCam Bridge v0.1.0 — Local onsite PTZ bridge</p>
+</footer>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

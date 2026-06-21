@@ -1,0 +1,2 @@
+[console_scripts]
+meowcam-bridge = meowcam_bridge.app:main

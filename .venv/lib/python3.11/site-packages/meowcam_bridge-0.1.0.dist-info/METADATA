@@ -1,0 +1,148 @@
+Metadata-Version: 2.4
+Name: meowcam-bridge
+Version: 0.1.0
+Summary: Standalone onsite PTZ controller-to-camera bridge
+Author: Meow Team
+License: MIT
+Keywords: ptz,visca,bridge,sony,ptzoptics
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: End Users/Desktop
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Topic :: Multimedia :: Video
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: fastapi>=0.110
+Requires-Dist: uvicorn[standard]>=0.29
+Requires-Dist: pydantic>=2.0
+Requires-Dist: pydantic-settings>=2.0
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0; extra == "dev"
+Requires-Dist: pytest-asyncio>=0.23; extra == "dev"
+Requires-Dist: httpx>=0.27; extra == "dev"
+Provides-Extra: build
+Requires-Dist: pyinstaller>=6.0; extra == "build"
+
+# MeowCam Bridge
+
+A standalone onsite application that bridges PTZ controller input to PTZ camera output. Designed for non-technical operators at live events, studios, or installs. No internet, no cloud, no Docker, no k3s required.
+
+## What it does
+
+- Listens for VISCA-over-UDP packets from a PTZ controller on per-camera incoming ports.
+- Decodes and normalises controller commands.
+- Rewrites sequence numbers and forces the correct camera address byte for Sony BRBK-IP10 cards.
+- Sends to the camera from the fixed UDP source port the camera expects (52381).
+- Receives camera replies and maps them back to the controller.
+- Provides a local web UI for settings, presets, manual control, and diagnostics.
+
+## Why it exists
+
+Sony BRC-H900 cameras with BRBK-IP10 IP cards require the controller to bind to UDP source port 52381. Generic controllers (and some PTZOptics firmware) send from ephemeral ports and wait for replies on those same ports, so the camera never replies correctly. This bridge sits between the controller and camera, handling the port binding and sequence rewriting so everything just works.
+
+## Quick start
+
+```bash
+# Install (editable dev install)
+pip install -e ".[dev]"
+
+# Run with example config
+python -m meowcam_bridge --config examples/config.example.json
+
+# Or let it create a default config
+python -m meowcam_bridge
+```
+
+Open `http://localhost:8080` in a browser.
+
+## Architecture
+
+```
+Controller (UDP)  →  Bridge Listener (per-route port)
+                           ↓
+                    Input Profile (decode)
+                           ↓
+                    Bridge Core (route + state)
+                           ↓
+                    Output Profile (encode)
+                           ↓
+Camera (UDP 52381)  ←  Fixed source port 52381
+Camera replies (UDP 65000) → Bridge → Controller
+```
+
+- **Profiles** are separate from core routing. Input profiles decode controller packets; output profiles encode camera packets. New profiles can be added without changing the bridge core.
+- **Routes** define up to 8 camera mappings: incoming port, controller profile, camera IP/port, camera profile.
+- **Sequence numbers** are managed per-route in `route_state` so the camera sees clean incrementing values independent of whatever the controller sends.
+- **Web UI** is static HTML/CSS/JS served by FastAPI. No build step, no bundler, no internet CDN.
+
+## Repository layout
+
+```
+meowcam-bridge/
+  pyproject.toml
+  README.md
+  src/meowcam_bridge/
+    __init__.py
+    app.py          # FastAPI + uvicorn entry point
+    config.py       # Pydantic models, JSON load/save
+    bridge.py       # Bridge core (stub — UDP relay logic TBD)
+    protocols/
+      base.py               # InputProfile / OutputProfile ABCs
+      visca.py              # VISCA framing utilities
+      input_ptzoptics.py    # PTZOptics PT-JOY-G4 profile
+      output_sony_brbk.py   # Sony BRC-H900 / BRBK-IP10 profile
+    web/
+      index.html
+      app.js
+      styles.css
+  tests/
+    test_config.py
+    test_visca.py
+    test_sony_brbk.py
+    test_bridge_mapping.py
+  examples/
+    config.example.json
+```
+
+## Configuration
+
+Config is a JSON file (auto-created as `meowcam-bridge.json` if missing). Up to 8 `routes` are supported. Each route has:
+
+- `enabled` — whether the bridge listens for this route
+- `label` — human-readable name (shown in UI)
+- `incoming_port` — UDP port the bridge listens on for controller packets
+- `input_profile` — controller profile name
+- `output_profile` — camera profile name
+- `camera_ip`, `camera_port` — target camera address
+- `preset_labels` — up to 16 preset names
+
+See `examples/config.example.json` for a full example.
+
+## Profiles
+
+| Type | Name | Description |
+|------|------|-------------|
+| Input | `ptzoptics_pt_joy_g4_sony_visca_udp` | PTZOptics PT-JOY-G4 sending Sony VISCA over UDP |
+| Output | `sony_brc_h900_brbk_ip10` | Sony BRC-H900 with BRBK-IP10 (fixed source port 52381, reply port 65000) |
+
+Future profiles (e.g. PTZOptics IP cameras, other VISCA/IP cameras) can be added by implementing `InputProfile` or `OutputProfile` from `protocols/base.py`.
+
+## Development
+
+```bash
+# Run tests
+pytest
+
+# Lint (optional)
+ruff check src tests
+```
+
+## Windows packaging (future)
+
+`PyInstaller` is listed as an optional build dependency. Packaging will be documented once the bridge core is implemented.
+
+## License
+
+MIT

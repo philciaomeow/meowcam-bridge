@@ -1,0 +1,111 @@
+{
+  "bridge_ip": "0.0.0.0",
+  "bridge_ui_port": 8080,
+  "controller_bind_ip": "0.0.0.0",
+  "routes": [
+    {
+      "enabled": true,
+      "label": "Main Stage",
+      "incoming_port": 52380,
+      "input_profile": "ptzoptics_pt_joy_g4_sony_visca_udp",
+      "output_profile": "sony_brc_h900_brbk_ip10",
+      "camera_ip": "192.168.1.100",
+      "camera_port": 52381,
+      "status": "unknown",
+      "preset_labels": [
+        "Wide Shot",
+        "Presenter",
+        "Audience",
+        "Close Up",
+        "Left Side",
+        "Right Side",
+        "Overhead",
+        "Band",
+        "Preset 9",
+        "Preset 10",
+        "Preset 11",
+        "Preset 12",
+        "Preset 13",
+        "Preset 14",
+        "Preset 15",
+        "Preset 16"
+      ]
+    },
+    {
+      "enabled": false,
+      "label": "Camera 2",
+      "incoming_port": 52381,
+      "input_profile": "ptzoptics_pt_joy_g4_sony_visca_udp",
+      "output_profile": "sony_brc_h900_brbk_ip10",
+      "camera_ip": "192.168.1.101",
+      "camera_port": 52381,
+      "status": "disabled",
+      "preset_labels": [
+        "Preset 1", "Preset 2", "Preset 3", "Preset 4",
+        "Preset 5", "Preset 6", "Preset 7", "Preset 8",
+        "Preset 9", "Preset 10", "Preset 11", "Preset 12",
+        "Preset 13", "Preset 14", "Preset 15", "Preset 16"
+      ]
+    },
+    {
+      "enabled": false,
+      "label": "Camera 3",
+      "incoming_port": 52382,
+      "input_profile": "ptzoptics_pt_joy_g4_sony_visca_udp",
+      "output_profile": "sony_brc_h900_brbk_ip10",
+      "camera_ip": "192.168.1.102",
+      "camera_port": 52381,
+      "status": "disabled"
+    },
+    {
+      "enabled": false,
+      "label": "Camera 4",
+      "incoming_port": 52383,
+      "input_profile": "ptzoptics_pt_joy_g4_sony_visca_udp",
+      "output_profile": "sony_brc_h900_brbk_ip10",
+      "camera_ip": "192.168.1.103",
+      "camera_port": 52381,
+      "status": "disabled"
+    },
+    {
+      "enabled": false,
+      "label": "Camera 5",
+      "incoming_port": 52384,
+      "input_profile": "ptzoptics_pt_joy_g4_sony_visca_udp",
+      "output_profile": "sony_brc_h900_brbk_ip10",
+      "camera_ip": "192.168.1.104",
+      "camera_port": 52381,
+      "status": "disabled"
+    },
+    {
+      "enabled": false,
+      "label": "Camera 6",
+      "incoming_port": 52385,
+      "input_profile": "ptzoptics_pt_joy_g4_sony_visca_udp",
+      "output_profile": "sony_brc_h900_brbk_ip10",
+      "camera_ip": "192.168.1.105",
+      "camera_port": 52381,
+      "status": "disabled"
+    },
+    {
+      "enabled": false,
+      "label": "Camera 7",
+      "incoming_port": 52386,
+      "input_profile": "ptzoptics_pt_joy_g4_sony_visca_udp",
+      "output_profile": "sony_brc_h900_brbk_ip10",
+      "camera_ip": "192.168.1.106",
+      "camera_port": 52381,
+      "status": "disabled"
+    },
+    {
+      "enabled": false,
+      "label": "Camera 8",
+      "incoming_port": 52387,
+      "input_profile": "ptzoptics_pt_joy_g4_sony_visca_udp",
+      "output_profile": "sony_brc_h900_brbk_ip10",
+      "camera_ip": "192.168.1.107",
+      "camera_port": 52381,
+      "status": "disabled"
+    }
+  ]
+}
