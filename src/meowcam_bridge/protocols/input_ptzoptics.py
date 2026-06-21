@@ -80,7 +80,7 @@ class PTZOpticsPTJoyG4SonyVISCAUDP(InputProfile):
             return {
                 "type": "visca_command",
                 "framing": "raw",
-                "payload_type": None,
+                "payload_type": 0x0100,
                 "payload_length": len(data),
                 "seq": 0,
                 "payload": data,

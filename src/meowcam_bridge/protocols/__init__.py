@@ -10,10 +10,12 @@ from typing import Type
 
 from .base import InputProfile, OutputProfile
 from .input_ptzoptics import PTZOpticsPTJoyG4SonyVISCAUDP
+from .input_ptzoptics_visca_udp import PTZOpticsPTJoyG4VISCAUDP
 from .output_sony_brbk import SonyBRCH900BRBKIP10
 
 _INPUT_PROFILES: dict[str, Type[InputProfile]] = {
     "ptzoptics_pt_joy_g4_sony_visca_udp": PTZOpticsPTJoyG4SonyVISCAUDP,
+    "ptzoptics_pt_joy_g4_visca_udp": PTZOpticsPTJoyG4VISCAUDP,
 }
 
 _OUTPUT_PROFILES: dict[str, Type[OutputProfile]] = {

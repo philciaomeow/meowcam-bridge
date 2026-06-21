@@ -416,8 +416,13 @@ class BridgeCore:
             return
 
         # Find the pending reply mapping
+        # Sony cameras send ACK then Completion with same seq.
         pending = self._pending_replies.get(idx, {})
-        mapped = pending.pop(cam_seq, None) if cam_seq is not None else None
+        is_ack = len(payload) >= 2 and payload[1] == 0x41
+        if cam_seq is not None:
+            mapped = pending.get(cam_seq) if is_ack else pending.pop(cam_seq, None)
+        else:
+            mapped = None
 
         if mapped is not None:
             controller_seq, return_addr, framing = mapped
@@ -543,8 +548,13 @@ class BridgeCore:
                 continue
 
             camera_seq = decoded.get("seq")
+            reply_payload = decoded.get("payload", b"")
+            is_ack = len(reply_payload) >= 2 and reply_payload[1] == 0x41
             pending = self._pending_replies.get(idx, {})
-            mapped = pending.pop(camera_seq, None) if camera_seq is not None else None
+            if camera_seq is not None:
+                mapped = pending.get(camera_seq) if is_ack else pending.pop(camera_seq, None)
+            else:
+                mapped = None
 
             if mapped is not None:
                 controller_seq, return_addr, framing = mapped

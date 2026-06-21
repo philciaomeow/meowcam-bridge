@@ -91,7 +91,7 @@ class SonyBRCH900BRBKIP10(OutputProfile):
         if payload is None:
             return None
         payload = self._force_address(payload)
-        payload_type = cmd.get("payload_type", VISCA_COMMAND_TYPE)
+        payload_type = cmd.get("payload_type") or VISCA_COMMAND_TYPE
         seq = self._next_seq(route_state)
         return build_visca_ip_packet(payload_type, seq, payload)
 
