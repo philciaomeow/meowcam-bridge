@@ -13,40 +13,14 @@
 </header>
 
 <nav id="tabs">
-  <button class="tab-btn active" data-tab="settings">Settings</button>
-  <button class="tab-btn" data-tab="presets">Presets</button>
+  <button class="tab-btn active" data-tab="presets">Presets</button>
   <button class="tab-btn" data-tab="manual">Manual Control</button>
   <button class="tab-btn" data-tab="diagnostics">Diagnostics</button>
+  <button class="tab-btn" data-tab="settings">Settings</button>
 </nav>
 
 <main>
-  <section id="settings" class="tab-panel active">
-    <h2>Settings</h2>
-    <div class="field-row">
-      <label>Bridge IP</label>
-      <input type="text" id="bridge-ip" value="0.0.0.0" readonly>
-    </div>
-    <div class="field-row">
-      <label>Controller Profile</label>
-      <select id="controller-profile">
-        <option value="ptzoptics_pt_joy_g4_sony_visca_udp">PTZOptics PT-JOY-G4 (Sony VISCA UDP)</option>
-      </select>
-    </div>
-    <h3>Camera Routes</h3>
-    <table id="routes-table">
-      <thead>
-        <tr><th>#</th><th>Enabled</th><th>Label</th><th>Incoming Port</th><th>Output Profile</th><th>Camera IP</th><th>Camera Port</th><th>Status</th><th>Test</th></tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-    <div class="actions">
-      <button id="btn-export">Export Config</button>
-      <button id="btn-import">Import Config</button>
-      <input type="file" id="import-file" accept=".json" hidden>
-    </div>
-  </section>
-
-  <section id="presets" class="tab-panel">
+  <section id="presets" class="tab-panel active">
     <h2>Presets</h2>
     <div class="field-row">
       <label>Select Camera</label>
@@ -76,6 +50,12 @@
         <button data-cmd="focus_far">Focus Far</button>
         <button data-cmd="autofocus">Autofocus Toggle</button>
       </div>
+      <div class="osd-controls">
+        <button data-cmd="menu_open">Menu Open</button>
+        <button data-cmd="menu_enter">Enter</button>
+        <button data-cmd="menu_back">Back</button>
+        <button data-cmd="menu_close">Menu Close</button>
+      </div>
       <div class="preset-actions">
         <label>Save Preset # <input type="number" id="save-preset-num" min="1" max="16" value="1"></label>
         <button id="btn-save-preset">Save Preset</button>
@@ -97,6 +77,36 @@
       <div><strong>Routes:</strong> <span id="route-status">—</span></div>
     </div>
     <button id="btn-reset-routes">Reset Route States</button>
+  </section>
+
+  <section id="settings" class="tab-panel">
+    <h2>Settings</h2>
+    <div class="field-row">
+      <label>Bridge IP</label>
+      <select id="bridge-ip-select">
+        <option value="0.0.0.0">0.0.0.0 (all interfaces)</option>
+      </select>
+      <input type="text" id="bridge-ip-manual" placeholder="or type IP" style="max-width:140px">
+      <button id="btn-save-bridge-ip">Save Bridge IP</button>
+    </div>
+    <div class="field-row">
+      <label>Controller Profile</label>
+      <select id="controller-profile">
+        <option value="ptzoptics_pt_joy_g4_sony_visca_udp">PTZOptics PT-JOY-G4 (Sony VISCA UDP)</option>
+      </select>
+    </div>
+    <h3>Camera Routes</h3>
+    <table id="routes-table">
+      <thead>
+        <tr><th>#</th><th>Enabled</th><th>Label</th><th>Incoming Port</th><th>Output Profile</th><th>Camera IP</th><th>Camera Port</th><th>Status</th><th></th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <div class="actions">
+      <button id="btn-export">Export Config</button>
+      <button id="btn-import">Import Config</button>
+      <input type="file" id="import-file" accept=".json" hidden>
+    </div>
   </section>
 </main>
 

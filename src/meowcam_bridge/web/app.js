@@ -7,10 +7,14 @@ Wires the local operator UI to the FastAPI backend:
 - preset recall buttons generated from route labels
 - manual PTZ/preset commands
 - diagnostics polling and reset
+- network interface dropdown for bridge IP selection
 */
 
 (function () {
   const MAX_ROUTES = 8;
+  const OUTPUT_PROFILES = [
+    { value: 'sony_brc_h900_brbk_ip10', label: 'Sony BRC-H900 (BRBK-IP10)' },
+  ];
   const DEFAULT_ROUTE = {
     enabled: false,
     label: 'Camera',
@@ -28,6 +32,7 @@ Wires the local operator UI to the FastAPI backend:
     routes: [],
     selectedPresetRoute: null,
     selectedManualRoute: null,
+    editing: false,  // true when user is actively editing a field
   };
 
   const $ = (selector) => document.querySelector(selector);
@@ -84,16 +89,57 @@ Wires the local operator UI to the FastAPI backend:
     return padded;
   }
 
+  async function loadNetworkInterfaces() {
+    try {
+      const ifaces = await request('/api/network-interfaces');
+      const sel = $('#bridge-ip-select');
+      if (!sel) return;
+      const currentVal = sel.value;
+      sel.innerHTML = '<option value="0.0.0.0">0.0.0.0 (all interfaces)</option>';
+      (ifaces || []).forEach((iface) => {
+        const opt = document.createElement('option');
+        opt.value = iface.ip;
+        opt.textContent = `${iface.ip} (${iface.name})`;
+        sel.appendChild(opt);
+      });
+      if (currentVal) sel.value = currentVal;
+    } catch (e) {
+      // endpoint may not exist yet — silently ignore
+    }
+  }
+
   async function loadConfig() {
     state.config = await request('/api/config');
     if (state.config.error) throw new Error(state.config.error);
-    $('#bridge-ip').value = state.config.bridge_ip || '0.0.0.0';
+    // Set bridge IP dropdown
+    const bridgeSel = $('#bridge-ip-select');
+    const bridgeManual = $('#bridge-ip-manual');
+    const currentIP = state.config.bridge_ip || '0.0.0.0';
+    if (bridgeSel) {
+      // Check if current IP is in dropdown
+      let found = false;
+      for (const opt of bridgeSel.options) {
+        if (opt.value === currentIP) { found = true; break; }
+      }
+      if (!found && currentIP !== '0.0.0.0') {
+        // Add it as a custom option
+        const opt = document.createElement('option');
+        opt.value = currentIP;
+        opt.textContent = currentIP;
+        bridgeSel.appendChild(opt);
+      }
+      bridgeSel.value = currentIP;
+    }
+    if (bridgeManual) bridgeManual.value = '';
+    // Set controller profile
     const firstRoute = (state.config.routes || [])[0] || DEFAULT_ROUTE;
     $('#controller-profile').value = firstRoute.input_profile || DEFAULT_ROUTE.input_profile;
     await loadRoutes();
   }
 
   async function loadRoutes() {
+    // Don't reload routes while user is editing
+    if (state.editing) return;
     const routes = await request('/api/routes');
     state.routes = normaliseRoutes(routes);
     renderRoutes();
@@ -109,7 +155,7 @@ Wires the local operator UI to the FastAPI backend:
       label: row.querySelector('[data-field="label"]').value.trim() || `Camera ${Number(row.dataset.index) + 1}`,
       incoming_port: Number(row.querySelector('[data-field="incoming_port"]').value),
       input_profile: row.querySelector('[data-field="input_profile"]').value.trim() || DEFAULT_ROUTE.input_profile,
-      output_profile: row.querySelector('[data-field="output_profile"]').value.trim() || DEFAULT_ROUTE.output_profile,
+      output_profile: row.querySelector('[data-field="output_profile"]').value || DEFAULT_ROUTE.output_profile,
       camera_ip: row.querySelector('[data-field="camera_ip"]').value.trim() || DEFAULT_ROUTE.camera_ip,
       camera_port: Number(row.querySelector('[data-field="camera_port"]').value),
       status: row.dataset.status || 'unknown',
@@ -120,6 +166,7 @@ Wires the local operator UI to the FastAPI backend:
   async function saveRoute(index) {
     const row = $(`#routes-table tbody tr[data-index="${index}"]`);
     if (!row) return;
+    state.editing = false;
     const payload = routeFromRow(row);
     await request(`/api/routes/${index}`, { method: 'PUT', body: JSON.stringify(payload) });
     showStatus(`Saved ${payload.label}`, true);
@@ -146,16 +193,20 @@ Wires the local operator UI to the FastAPI backend:
     const tbody = $('#routes-table tbody');
     if (!tbody) return;
     tbody.innerHTML = '';
+    const profileOptions = OUTPUT_PROFILES.map(
+      (p) => `<option value="${p.value}">${p.label}</option>`
+    ).join('');
     state.routes.forEach((r) => {
       const tr = document.createElement('tr');
       tr.dataset.index = r.index;
       tr.dataset.status = r.status || 'unknown';
+      const selectedProfile = r.output_profile || DEFAULT_ROUTE.output_profile;
       tr.innerHTML = `
         <td>${r.index + 1}</td>
         <td><input data-field="enabled" type="checkbox" ${r.enabled ? 'checked' : ''}></td>
         <td><input data-field="label" type="text" value="${escapeHtml(r.label)}"></td>
         <td><input data-field="incoming_port" type="number" min="1" max="65535" value="${r.incoming_port}"></td>
-        <td><input data-field="output_profile" type="text" value="${escapeHtml(r.output_profile)}"></td>
+        <td><select data-field="output_profile">${profileOptions}</select></td>
         <td><input data-field="camera_ip" type="text" value="${escapeHtml(r.camera_ip)}"></td>
         <td><input data-field="camera_port" type="number" min="1" max="65535" value="${r.camera_port}"></td>
         <td><span class="route-status ${escapeHtml(r.status || 'unknown')}">${escapeHtml(r.status || 'unknown')}</span></td>
@@ -165,6 +216,14 @@ Wires the local operator UI to the FastAPI backend:
           <button data-action="test-route">Test</button>
         </td>
       `;
+      // Set the output profile dropdown value after innerHTML
+      const sel = tr.querySelector('[data-field="output_profile"]');
+      if (sel) sel.value = selectedProfile;
+      // Mark editing on focus
+      tr.querySelectorAll('input, select').forEach((el) => {
+        el.addEventListener('focus', () => { state.editing = true; });
+        el.addEventListener('change', () => { state.editing = true; });
+      });
       tbody.appendChild(tr);
     });
   }
@@ -180,7 +239,7 @@ Wires the local operator UI to the FastAPI backend:
       list.forEach((r) => {
         const opt = document.createElement('option');
         opt.value = r.index;
-        opt.textContent = `${r.index + 1}: ${r.label} (${r.camera_ip})${r.enabled ? '' : ' disabled'}`;
+        opt.textContent = `${r.index + 1}: ${r.label} (${r.camera_ip})${r.enabled ? '' : ' (disabled)'}`;
         sel.appendChild(opt);
       });
       if (prior && list.some((r) => String(r.index) === String(prior))) sel.value = prior;
@@ -226,6 +285,23 @@ Wires the local operator UI to the FastAPI backend:
     } catch (err) {
       showStatus('Command failed', false);
       alert(`Command failed: ${err.message}`);
+    }
+  }
+
+  async function saveBridgeIP() {
+    const sel = $('#bridge-ip-select');
+    const manual = $('#bridge-ip-manual');
+    let ip = manual.value.trim() || sel.value;
+    if (!ip) ip = '0.0.0.0';
+    try {
+      const cfg = await request('/api/config');
+      cfg.bridge_ip = ip;
+      await request('/api/config', { method: 'PUT', body: JSON.stringify(cfg) });
+      showStatus(`Bridge IP set to ${ip}`, true);
+      manual.value = '';
+    } catch (err) {
+      showStatus('Failed to save Bridge IP', false);
+      alert(`Failed: ${err.message}`);
     }
   }
 
@@ -292,9 +368,12 @@ Wires the local operator UI to the FastAPI backend:
       });
     });
 
+    $('#btn-save-bridge-ip')?.addEventListener('click', () => saveBridgeIP());
+
     $('#controller-profile')?.addEventListener('change', async (event) => {
       $$('#routes-table tbody tr').forEach((row) => {
-        row.querySelector('[data-field="input_profile"]').value = event.target.value;
+        const hidden = row.querySelector('[data-field="input_profile"]');
+        if (hidden) hidden.value = event.target.value;
       });
       showStatus('Controller profile staged; save route rows to persist', true);
     });
@@ -356,11 +435,14 @@ Wires the local operator UI to the FastAPI backend:
   }
 
   bindEvents();
+  loadNetworkInterfaces();
   loadConfig().catch((err) => {
     showStatus('Backend unavailable', false);
     console.warn('Failed to load config', err);
   });
   loadDiagnostics();
-  setInterval(loadRoutes, 5000);
+  // Only poll diagnostics (not routes) to avoid wiping edits
   setInterval(loadDiagnostics, 5000);
+  // Poll routes only if not editing
+  setInterval(() => { if (!state.editing) loadRoutes(); }, 10000);
 })();

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import pathlib
+import socket
 import sys
 from typing import Any
 
@@ -208,6 +209,48 @@ async def post_command(payload: dict) -> dict:
         "ok": result.ok,
         "detail": result.detail,
     }
+
+
+# ---------------------------------------------------------------------------
+# Network interfaces
+# ---------------------------------------------------------------------------
+
+@app.get("/api/network-interfaces")
+async def get_network_interfaces() -> list[dict]:
+    """Return local network interface IPs for the bridge IP dropdown."""
+    interfaces = []
+    try:
+        hostname = socket.gethostname()
+        for info in socket.getaddrinfo(hostname, None, socket.AF_INET):
+            ip = info[4][0]
+            if ip == "127.0.0.1":
+                continue
+            name = "interface"
+            try:
+                import netifaces
+                for iface_name in netifaces.interfaces():
+                    addrs = netifaces.ifaddresses(iface_name)
+                    ipv4s = addrs.get(netifaces.AF_INET, [])
+                    for addr in ipv4s:
+                        if addr.get("addr") == ip:
+                            name = iface_name
+                            break
+            except ImportError:
+                pass
+            if not any(i["ip"] == ip for i in interfaces):
+                interfaces.append({"ip": ip, "name": name})
+    except Exception:
+        pass
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        if not any(i["ip"] == ip for i in interfaces):
+            interfaces.append({"ip": ip, "name": "primary"})
+    except Exception:
+        pass
+    return interfaces
 
 
 # ---------------------------------------------------------------------------
