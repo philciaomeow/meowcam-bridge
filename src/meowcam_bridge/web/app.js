@@ -169,8 +169,11 @@ Wires the local operator UI to the FastAPI backend:
     state.editing = false;
     const payload = routeFromRow(row);
     await request(`/api/routes/${index}`, { method: 'PUT', body: JSON.stringify(payload) });
-    showStatus(`Saved ${payload.label}`, true);
+    showStatus(`Saved ${payload.label} — restarting bridge…`, true);
     await loadRoutes();
+    // Restart bridge listeners with new config
+    try { await request('/api/bridge/restart', { method: 'POST', body: '{}' }); } catch (e) {}
+    showStatus(`Saved ${payload.label}`, true);
   }
 
   async function testRoute(index) {
@@ -297,6 +300,9 @@ Wires the local operator UI to the FastAPI backend:
       const cfg = await request('/api/config');
       cfg.bridge_ip = ip;
       await request('/api/config', { method: 'PUT', body: JSON.stringify(cfg) });
+      showStatus(`Bridge IP set to ${ip} — restarting bridge…`, true);
+      // Restart bridge to bind new IP
+      try { await request('/api/bridge/restart', { method: 'POST', body: '{}' }); } catch (e) {}
       showStatus(`Bridge IP set to ${ip}`, true);
       manual.value = '';
     } catch (err) {
@@ -443,6 +449,11 @@ Wires the local operator UI to the FastAPI backend:
   loadDiagnostics();
   // Only poll diagnostics (not routes) to avoid wiping edits
   setInterval(loadDiagnostics, 5000);
-  // Poll routes only if not editing
-  setInterval(() => { if (!state.editing) loadRoutes(); }, 10000);
+  // Poll routes only if not editing and settings tab not active
+  setInterval(() => {
+    if (state.editing) return;
+    const settingsActive = $('#settings')?.classList.contains('active');
+    if (settingsActive) return; // don't refresh routes while on settings page
+    loadRoutes();
+  }, 15000);
 })();

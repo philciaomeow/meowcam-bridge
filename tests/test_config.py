@@ -15,7 +15,7 @@ class TestCameraRoute:
         r = CameraRoute()
         assert r.enabled is False
         assert r.label == "Camera"
-        assert r.incoming_port == 52380
+        assert r.incoming_port == 52381
         assert r.input_profile == "ptzoptics_pt_joy_g4_sony_visca_udp"
         assert r.output_profile == "sony_brc_h900_brbk_ip10"
         assert r.camera_ip == "192.168.1.100"

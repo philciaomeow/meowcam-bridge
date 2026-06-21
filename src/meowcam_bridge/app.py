@@ -7,9 +7,11 @@ presets, diagnostics, and config import/export.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import pathlib
 import socket
 import sys
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
@@ -20,12 +22,26 @@ import uvicorn
 from .config import BridgeConfig, CameraRoute, MAX_ROUTES
 from .bridge import BridgeCore, CommandResult
 
-# FastAPI app (module-level so uvicorn can import it)
-app = FastAPI(title="MeowCam Bridge", version="0.1.0")
-
 # In-memory config and bridge core (replaced on reload)
 _bridge: BridgeCore | None = None
 _config_path: pathlib.Path | None = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Start/stop the bridge UDP listeners alongside the web UI."""
+    global _bridge
+    if _bridge is not None:
+        await _bridge.start()
+        print(f"[MeowCam] Bridge started — {_bridge.config}")
+    yield
+    if _bridge is not None:
+        await _bridge.stop()
+        print("[MeowCam] Bridge stopped.")
+
+
+# FastAPI app (module-level so uvicorn can import it)
+app = FastAPI(title="MeowCam Bridge", version="0.1.0", lifespan=lifespan)
 
 
 # ---------------------------------------------------------------------------
@@ -251,6 +267,31 @@ async def get_network_interfaces() -> list[dict]:
     except Exception:
         pass
     return interfaces
+
+
+# ---------------------------------------------------------------------------
+# Bridge control
+# ---------------------------------------------------------------------------
+
+@app.post("/api/bridge/restart")
+async def restart_bridge() -> dict:
+    """Restart the UDP bridge listeners after config changes."""
+    global _bridge
+    if _bridge is None:
+        raise HTTPException(status_code=503, detail="bridge not initialised")
+    await _bridge.stop()
+    await _bridge.start()
+    routes_info = [{"index": i, "label": r.label, "enabled": r.enabled, "status": r.status}
+                   for i, r in enumerate(_bridge.config.routes)]
+    return {"ok": True, "routes": routes_info}
+
+
+@app.get("/api/bridge/status")
+async def bridge_status() -> dict:
+    """Check if the UDP bridge is running."""
+    if _bridge is None:
+        return {"running": False}
+    return {"running": _bridge._running, "routes": len(_bridge.config.routes)}
 
 
 # ---------------------------------------------------------------------------

@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field, field_validator
 
 
 MAX_ROUTES: int = 8
-DEFAULT_CONTROLLER_PORT: int = 52380
+DEFAULT_CONTROLLER_PORT: int = 52381
 
 
 class CameraRoute(BaseModel):
