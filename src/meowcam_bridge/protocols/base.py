@@ -64,6 +64,14 @@ class OutputProfile(abc.ABC):
     name: str = ""
     description: str = ""
 
+    # OSD command payload overrides.
+    # Maps a bridge command name (e.g. "menu_enter") to the raw VISCA payload
+    # (without the address byte) that this specific camera expects.
+    # When a key is present, send_command() uses the profile's payload instead of
+    # the default from _build_visca_payload(). This lets cameras with non-standard
+    # OSD semantics override without changing the bridge core.
+    OSD_PAYLOADS: dict[str, bytes] = {}
+
     @abc.abstractmethod
     def encode(self, cmd: dict[str, Any], route_state: dict[str, Any]) -> bytes | None:
         """Encode a generic bridge command into camera wire format.

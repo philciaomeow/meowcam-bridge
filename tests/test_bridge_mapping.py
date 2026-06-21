@@ -91,6 +91,57 @@ class TestBridgeCoreCommands:
         assert "out of range" in result.detail.lower()
 
 
+class TestBridgeCoreOSDCommands:
+    """Test OSD menu command payloads for BRC-H900 compatibility.
+
+    The Sony BRC-H900 VISCA OSD commands are:
+      menu_open  = 01 06 06 02 FF
+      menu_close = 01 06 06 03 FF
+      menu_enter = 01 06 06 05 FF
+      menu_back  = 01 06 06 04 FF
+    """
+
+    @pytest.mark.asyncio
+    async def test_menu_open_payload(self):
+        cfg = BridgeConfig(routes=[CameraRoute(enabled=True, label="Test")])
+        core = BridgeCore(cfg)
+        result = await core.send_command(0, "menu_open", {})
+        assert result.ok is True
+        assert "01060602ff" in result.detail.replace(" ", "").lower()
+
+    @pytest.mark.asyncio
+    async def test_menu_close_payload(self):
+        cfg = BridgeConfig(routes=[CameraRoute(enabled=True, label="Test")])
+        core = BridgeCore(cfg)
+        result = await core.send_command(0, "menu_close", {})
+        assert result.ok is True
+        assert "01060603ff" in result.detail.replace(" ", "").lower()
+
+    @pytest.mark.asyncio
+    async def test_menu_enter_payload(self):
+        """menu_enter must be 01 06 06 05 FF, NOT the old 01 7E 01 02 00 01 FF."""
+        cfg = BridgeConfig(routes=[CameraRoute(enabled=True, label="Test")])
+        core = BridgeCore(cfg)
+        result = await core.send_command(0, "menu_enter", {})
+        assert result.ok is True
+        detail = result.detail.replace(" ", "").lower()
+        assert "01060605ff" in detail
+        # Explicitly verify old wrong payload is NOT present
+        assert "017e0102000 1ff" not in detail
+        assert "017e01020001ff" not in detail
+
+    @pytest.mark.asyncio
+    async def test_menu_back_payload(self):
+        """menu_back must be 01 06 06 04 FF, NOT the old 01 7E 01 02 00 02 FF."""
+        cfg = BridgeConfig(routes=[CameraRoute(enabled=True, label="Test")])
+        core = BridgeCore(cfg)
+        result = await core.send_command(0, "menu_back", {})
+        assert result.ok is True
+        detail = result.detail.replace(" ", "").lower()
+        assert "01060604ff" in detail
+        assert "017e01020002ff" not in detail
+
+
 class TestBridgeCoreSequenceMapping:
     """Test sequence mapping between controller and camera sides."""
 

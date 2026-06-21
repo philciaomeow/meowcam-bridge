@@ -379,7 +379,16 @@ class BridgeCore:
         if not route.enabled:
             return CommandResult(ok=False, result="error", detail="route is disabled")
 
-        payload = self._build_visca_payload(command, args)
+        # Resolve profiles early so we can check for OSD payload overrides
+        profiles = self._resolve_profiles(route)
+        output_prof = profiles[1] if profiles else None
+
+        # If the output profile overrides this OSD command, use its payload directly.
+        # Otherwise fall back to the bridge core's default payload builder.
+        if output_prof is not None and command in output_prof.OSD_PAYLOADS:
+            payload = output_prof.OSD_PAYLOADS[command]
+        else:
+            payload = self._build_visca_payload(command, args)
         if payload is None:
             return CommandResult(ok=False, result="error", detail=f"unknown command: {command}")
 
@@ -393,9 +402,8 @@ class BridgeCore:
         self._log_event(f"[{route.label}] {command}")
 
         if self._running:
-            profiles = self._resolve_profiles(route)
             if profiles is not None:
-                input_prof, output_prof = profiles
+                input_prof, output_prof_live = profiles
                 route_state = self.route_state(route_index)
                 # Build a synthetic decoded command for the output profile
                 cmd = {
@@ -404,7 +412,7 @@ class BridgeCore:
                     "seq": 0,
                     "framing": "visca_ip",
                 }
-                camera_packet = output_prof.encode(cmd, route_state)
+                camera_packet = output_prof_live.encode(cmd, route_state)
                 if camera_packet is not None:
                     camera_sock = self._camera_sockets.get(route_index)
                     if camera_sock is not None:
@@ -457,10 +465,12 @@ class BridgeCore:
                 return bytes([0x01, 0x04, 0x3F, 0x02, preset, 0xFF])
             case "menu_open":
                 return bytes([0x01, 0x06, 0x06, 0x02, 0xFF])
+            case "menu_close":
+                return bytes([0x01, 0x06, 0x06, 0x03, 0xFF])
             case "menu_enter":
-                return bytes([0x01, 0x7E, 0x01, 0x02, 0x00, 0x01, 0xFF])
+                return bytes([0x01, 0x06, 0x06, 0x05, 0xFF])
             case "menu_back":
-                return bytes([0x01, 0x7E, 0x01, 0x02, 0x00, 0x02, 0xFF])
+                return bytes([0x01, 0x06, 0x06, 0x04, 0xFF])
             case _:
                 return None
 
