@@ -1,0 +1,7 @@
+# Python cache/test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local operator config generated at runtime
+meowcam-bridge.json
