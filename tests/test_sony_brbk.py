@@ -78,7 +78,7 @@ class TestSonyBRCH900BRBKIP10SequenceRewrite:
         packet = p.encode(cmd, state)
         parsed = parse_visca_ip_packet(packet)
         assert parsed is not None
-        assert parsed[2] == 0  # wraps to 0
+        assert parsed[2] == 1  # wraps to 1 (0 is reserved for control)
 
     def test_decode_reply_extracts_seq(self):
         p = SonyBRCH900BRBKIP10()
