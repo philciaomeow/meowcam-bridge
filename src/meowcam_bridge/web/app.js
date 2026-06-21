@@ -18,7 +18,7 @@ Wires the local operator UI to the FastAPI backend:
   const DEFAULT_ROUTE = {
     enabled: false,
     label: 'Camera',
-    incoming_port: 52380,
+    incoming_port: 52381,
     input_profile: 'ptzoptics_pt_joy_g4_sony_visca_udp',
     output_profile: 'sony_brc_h900_brbk_ip10',
     camera_ip: '192.168.1.100',

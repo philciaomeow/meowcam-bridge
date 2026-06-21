@@ -66,6 +66,8 @@ class SonyBRCH900BRBKIP10(OutputProfile):
     def _next_seq(self, route_state: dict[str, Any]) -> int:
         seq = route_state.get("sony_seq", 0)
         seq = (seq + 1) & 0xFFFFFFFF
+        if seq == 0:
+            seq = 1
         route_state["sony_seq"] = seq
         return seq
 
