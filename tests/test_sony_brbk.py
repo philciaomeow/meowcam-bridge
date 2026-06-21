@@ -53,3 +53,56 @@ class TestSonyBRCH900BRBKIP10:
         assert decoded is not None
         assert decoded["seq"] == 7
         assert decoded["payload"] == b"\x81\x50\xFF"
+
+
+class TestSonyBRCH900BRBKIP10SequenceRewrite:
+    """Test clean camera-side sequence rewrite and reply handling."""
+
+    def test_sequence_wraps_at_32bit(self):
+        p = SonyBRCH900BRBKIP10()
+        state: dict = {"sony_seq": 0xFFFFFFFF}
+        cmd = {"payload": b"\x81\x01\x06\x01\x03\x03\xFF", "payload_type": 0x0200}
+        packet = p.encode(cmd, state)
+        parsed = parse_visca_ip_packet(packet)
+        assert parsed is not None
+        assert parsed[2] == 0  # wraps to 0
+
+    def test_decode_reply_extracts_seq(self):
+        p = SonyBRCH900BRBKIP10()
+        state: dict = {}
+        from meowcam_bridge.protocols.visca import build_visca_ip_packet
+        reply = build_visca_ip_packet(0x0111, 12345, b"\x81\x50\xFF")
+        decoded = p.decode_reply(reply, state)
+        assert decoded is not None
+        assert decoded["seq"] == 12345
+        assert decoded["payload"] == b"\x81\x50\xFF"
+
+    def test_encode_preserves_payload_type(self):
+        p = SonyBRCH900BRBKIP10()
+        state: dict = {}
+        from meowcam_bridge.protocols.visca import VISCA_INQUIRY_TYPE
+        cmd = {"payload": b"\x81\x09\x00\x02\xFF", "payload_type": VISCA_INQUIRY_TYPE}
+        packet = p.encode(cmd, state)
+        parsed = parse_visca_ip_packet(packet)
+        assert parsed is not None
+        assert parsed[0] == VISCA_INQUIRY_TYPE
+
+
+class TestSonyBRCH900BRBKIP10RouteSelection:
+    """Test per-route state isolation for sequence counters."""
+
+    def test_multiple_routes_independent_sequences(self):
+        p = SonyBRCH900BRBKIP10()
+        state_a: dict = {}
+        state_b: dict = {}
+        cmd = {"payload": b"\x81\x01\x06\x01\x03\x03\xFF", "payload_type": 0x0200}
+        p.encode(cmd, state_a)
+        p.encode(cmd, state_a)
+        p.encode(cmd, state_b)
+        assert state_a["sony_seq"] == 2
+        assert state_b["sony_seq"] == 1
+
+    def test_source_port_fixed(self):
+        p = SonyBRCH900BRBKIP10()
+        assert p.source_port() == 52381
+        assert p.CAMERA_REPLY_PORT == 65000

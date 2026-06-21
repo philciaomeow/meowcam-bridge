@@ -29,3 +29,82 @@ class TestBridgeCore:
         cfg = BridgeConfig()
         core = BridgeCore(cfg)
         pytest.skip("BridgeCore.start/stop now implemented")
+
+
+class TestBridgeCoreCommands:
+    """Test command dispatch for version inquiry, preset recall/save, pan/tilt stop."""
+
+    @pytest.mark.asyncio
+    async def test_version_inquiry_payload(self):
+        cfg = BridgeConfig(routes=[CameraRoute(enabled=True, label="Test")])
+        core = BridgeCore(cfg)
+        result = await core.test_route(0, "version")
+        assert result.ok is True
+        assert "version inquiry" in result.detail.lower() or "built" in result.result
+
+    @pytest.mark.asyncio
+    async def test_stop_payload(self):
+        cfg = BridgeConfig(routes=[CameraRoute(enabled=True, label="Test")])
+        core = BridgeCore(cfg)
+        result = await core.test_route(0, "stop")
+        assert result.ok is True
+        assert "stop" in result.detail.lower() or "built" in result.result
+
+    @pytest.mark.asyncio
+    async def test_preset_recall_payload(self):
+        cfg = BridgeConfig(routes=[CameraRoute(enabled=True, label="Test")])
+        core = BridgeCore(cfg)
+        result = await core.send_command(0, "preset_recall", {"preset": 5})
+        assert result.ok is True
+        assert "3f 02 05" in result.detail.lower() or "3f0205" in result.detail.lower()
+
+    @pytest.mark.asyncio
+    async def test_preset_save_payload(self):
+        cfg = BridgeConfig(routes=[CameraRoute(enabled=True, label="Test")])
+        core = BridgeCore(cfg)
+        result = await core.send_command(0, "preset_save", {"preset": 3})
+        assert result.ok is True
+        assert "3f 01 03" in result.detail.lower() or "3f0103" in result.detail.lower()
+
+    @pytest.mark.asyncio
+    async def test_pan_tilt_stop_payload(self):
+        cfg = BridgeConfig(routes=[CameraRoute(enabled=True, label="Test")])
+        core = BridgeCore(cfg)
+        result = await core.send_command(0, "stop", {})
+        assert result.ok is True
+        assert "01 06 01 01 01 03 03 ff" in result.detail.lower() or "01060101010303ff" in result.detail.lower()
+
+    @pytest.mark.asyncio
+    async def test_disabled_route_rejected(self):
+        cfg = BridgeConfig(routes=[CameraRoute(enabled=False, label="Off")])
+        core = BridgeCore(cfg)
+        result = await core.send_command(0, "stop", {})
+        assert result.ok is False
+        assert "disabled" in result.detail.lower()
+
+    @pytest.mark.asyncio
+    async def test_out_of_range_route_rejected(self):
+        cfg = BridgeConfig()
+        core = BridgeCore(cfg)
+        result = await core.send_command(0, "stop", {})
+        assert result.ok is False
+        assert "out of range" in result.detail.lower()
+
+
+class TestBridgeCoreSequenceMapping:
+    """Test sequence mapping between controller and camera sides."""
+
+    def test_route_state_sequence_tracking(self):
+        cfg = BridgeConfig(routes=[CameraRoute(enabled=True, label="Seq")])
+        core = BridgeCore(cfg)
+        state = core.route_state(0)
+        state["sony_seq"] = 10
+        assert core.route_state(0)["sony_seq"] == 10
+
+    def test_pending_replies_isolated_by_route(self):
+        cfg = BridgeConfig(routes=[CameraRoute(enabled=True, label="A"), CameraRoute(enabled=True, label="B")])
+        core = BridgeCore(cfg)
+        core._pending_replies[0] = {1: (42, ("192.168.1.50", 52380), "visca_ip")}
+        core._pending_replies[1] = {2: (99, ("192.168.1.51", 52380), "visca_ip")}
+        assert core._pending_replies[0][1][0] == 42
+        assert core._pending_replies[1][2][0] == 99
