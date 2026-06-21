@@ -1,8 +1,6 @@
 @echo off
-REM MeowCam Bridge — Windows launcher
+REM MeowCam Bridge - Windows launcher
 REM Double-click to start. Keeps console open for logs.
-
-setlocal EnableDelayedExpansion
 
 echo ==========================================
 echo   MeowCam Bridge - Starting up...
@@ -23,18 +21,16 @@ if errorlevel 1 (
     exit /b 1
 )
 
-for /f "tokens=*" %%a in ('python --version 2^>^&1') do set PYTHON_VERSION=%%a
+for /f "delims=" %%a in ('python --version 2^>^&1') do set PYTHON_VERSION=%%a
 echo Found: %PYTHON_VERSION%
 echo.
 
 REM --- Install / update package ---
-REM In dev mode we install editable. For a packaged release this step
-REM would be skipped and we'd run the PyInstaller .exe directly.
 if exist "pyproject.toml" (
-    echo Installing / updating MeowCam Bridge (editable)...
+    echo Installing MeowCam Bridge...
     python -m pip install -e ".[dev]" --quiet
     if errorlevel 1 (
-        echo WARNING: pip install failed. Trying to run anyway...
+        echo WARNING: pip install had an issue. Trying to run anyway...
     ) else (
         echo OK.
     )
@@ -54,8 +50,6 @@ if not exist "%CONFIG_FILE%" (
 REM --- Firewall warning ---
 echo IMPORTANT: Windows Firewall may ask to allow Python network access.
 echo Please click ALLOW so the bridge can send/receive UDP packets.
-echo If you don't see a prompt, you may need to add a rule manually:
-echo   Control Panel ^> Windows Defender Firewall ^> Allow an app...
 echo.
 
 REM --- Start bridge ---
@@ -66,9 +60,9 @@ echo Press Ctrl+C to stop.
 echo.
 
 REM Open browser after a short delay so the server is ready
-start /b cmd /c "timeout /t 3 /nobreak >nul && start http://localhost:8080"
+start /b cmd /c "timeout /t 3 /nobreak >nul & start http://localhost:8080"
 
-REM Run the bridge.  --host 0.0.0.0 lets other machines on the LAN reach the UI.
+REM Run the bridge. --host 0.0.0.0 lets other machines on the LAN reach the UI.
 python -m meowcam_bridge --config "%CONFIG_FILE%" --host 0.0.0.0 --port 8080
 
 REM If we get here, the bridge exited.
