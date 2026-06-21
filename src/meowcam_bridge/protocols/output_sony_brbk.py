@@ -70,11 +70,19 @@ class SonyBRCH900BRBKIP10(OutputProfile):
         return seq
 
     def _force_address(self, payload: bytes) -> bytes:
-        """Force the first payload byte to the VISCA address for camera ID 1."""
+        """Return payload addressed to camera ID 1.
+
+        Controller-originated VISCA payloads already include an address byte
+        (0x81-0x88), so rewrite that byte. Bridge-generated UI/API commands are
+        intentionally stored without an address byte and begin with the VISCA
+        command category (usually 0x01 or 0x09), so prepend the address instead.
+        """
         if not payload:
             return payload
         addr = visca_address(self.FORCED_CAMERA_ID)
-        return bytes([addr]) + payload[1:]
+        if 0x81 <= payload[0] <= 0x88:
+            return bytes([addr]) + payload[1:]
+        return bytes([addr]) + payload
 
     def encode(self, cmd: dict[str, Any], route_state: dict[str, Any]) -> bytes | None:
         payload = cmd.get("payload")

@@ -33,6 +33,19 @@ class TestSonyBRCH900BRBKIP10:
         assert out_payload[0] == 0x81
         assert out_payload[1:] == payload[1:]
 
+    def test_encode_prepends_address_for_bridge_generated_payload(self):
+        p = SonyBRCH900BRBKIP10()
+        state: dict = {}
+        # Bridge-generated UI/API commands omit the address byte.
+        payload = b"\x01\x06\x06\x05\xFF"
+        cmd = {"payload": payload, "payload_type": VISCA_COMMAND_TYPE}
+        packet = p.encode(cmd, state)
+        assert packet is not None
+        parsed = parse_visca_ip_packet(packet)
+        assert parsed is not None
+        _, _, _, out_payload = parsed
+        assert out_payload == b"\x81\x01\x06\x06\x05\xFF"
+
     def test_sequence_increments(self):
         p = SonyBRCH900BRBKIP10()
         state: dict = {}
