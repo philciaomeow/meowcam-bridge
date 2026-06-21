@@ -60,7 +60,7 @@ meowcam-bridge/
     __init__.py
     app.py          # FastAPI + uvicorn entry point
     config.py       # Pydantic models, JSON load/save
-    bridge.py       # Bridge core (stub — UDP relay logic TBD)
+    bridge.py       # Async UDP relay, route state, diagnostics, command dispatch
     protocols/
       base.py               # InputProfile / OutputProfile ABCs
       visca.py              # VISCA framing utilities
@@ -112,9 +112,9 @@ pytest
 ruff check src tests
 ```
 
-## Windows packaging (future)
+## Windows packaging
 
-`PyInstaller` is listed as an optional build dependency. Packaging will be documented once the bridge core is implemented.
+`PyInstaller` is listed as an optional build dependency. Source-folder Windows running is supported now with `launch.bat`; a one-click bundled `.exe`/`.zip` release is the next packaging step.
 
 ## License
 

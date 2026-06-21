@@ -15,7 +15,7 @@
 - Python 3.11+ source package with `pyproject.toml`.
 - FastAPI + uvicorn local web UI on `http://localhost:8080`.
 - Config auto-created as JSON in working directory (`meowcam-bridge.json`).
-- UDP bridge core stubbed; UI and config layer complete.
+- UDP bridge core, PTZOptics input profile, Sony BRC-H900/BRBK-IP10 output profile, diagnostics, settings, presets, and manual controls are implemented and covered by tests.
 
 ## File locations (packaging decisions)
 
