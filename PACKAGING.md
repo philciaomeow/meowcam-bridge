@@ -28,7 +28,38 @@
   - `launch.bat` for Windows double-click startup.
   - `launch.sh` for Linux/macOS.
 
-## v0.2 packaging plan — System tray Windows app
+## v0.2 packaging plan — System tray Windows app + NDI / OpenCV / ATEM
+
+### New runtime dependencies (v0.2)
+
+| Package | Purpose | Bundled by PyInstaller? | Optional? |
+|---------|---------|------------------------|-----------|
+| `ndi-python` | NDI video receive (network sources) | Yes — C extension + runtime DLL | Yes — bridge falls back to test pattern |
+| `opencv-python-headless` | USB/HDMI capture, JPEG encoding, test pattern | Yes — large binary wheels | Yes — test pattern works without it |
+| `PyATEMMax` | ATEM switcher control (SuperSource, tally) | Yes — pure Python | Yes — bridge works without ATEM |
+| `numpy` | Required by OpenCV and NDI frame handling | Yes | Yes (via above) |
+
+All three are **optional at runtime** — the bridge starts and functions fully as a PTZ controller without any of them. They are only needed when the corresponding features (NDI video, USB capture, ATEM integration) are enabled in the config.
+
+### PyInstaller bundling specifics
+
+#### NDI runtime DLL
+
+The `ndi-python` wheel bundles `Processing.NDI.Lib.x64.dll` (or equivalent platform DLL). PyInstaller does **not** automatically detect this non-Python DLL, so the spec and build script handle it:
+
+1. **Auto-detection** in `meowcam-bridge.spec`: searches the `NDIlib` package directory for `Processing.NDI.Lib*.dll` and adds them to `binaries=`.
+2. **Runtime hook** (`hooks/runtime_hook_ndi.py`): calls `os.add_dll_directory(sys._MEIPASS)` so the bundled DLL is found at runtime in onedir mode.
+3. **Fallback** in `video_manager.py`: if `NDIlib` import fails, the route falls back to `TestPatternSource`.
+
+#### OpenCV data files
+
+OpenCV ships with haarcascade XML files and FFmpeg DLLs. The spec auto-detects:
+- `cv2/data/` directory → bundled as `cv2/data`
+- Any `.dll` files in the `cv2` package root → bundled at top level
+
+#### PyATEMMax
+
+Pure Python — no special binary handling needed. Added to `hiddenimports` in the spec to ensure PyInstaller collects all submodules (`ATEMProtocolEnums`, etc.).
 
 ### Approach: PyInstaller + `pystray` + `tkinter` loading screen
 

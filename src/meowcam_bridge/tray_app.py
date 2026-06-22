@@ -238,8 +238,22 @@ def _show_loading_screen(on_ready: threading.Event) -> None:
 def main() -> int:
     """Entry point for the tray app."""
     _setup_logging()
-    logger.info("MeowCam Bridge tray app starting (v0.1.1)")
+    logger.info("MeowCam Bridge tray app starting (v0.2.0)")
     logger.info("BASE_DIR=%s CONFIG_PATH=%s", _BASE_DIR, CONFIG_PATH)
+
+    # Optional dependency check — log availability but don't fail
+    _opt_deps = {}
+    for _pkg, _mod in [
+        ("ndi-python", "NDIlib"),
+        ("opencv-python-headless", "cv2"),
+        ("PyATEMMax", "PyATEMMax"),
+    ]:
+        try:
+            __import__(_mod)
+            _opt_deps[_pkg] = "available"
+        except ImportError:
+            _opt_deps[_pkg] = "missing"
+    logger.info("Optional dependencies: %s", _opt_deps)
 
     try:
         host = "0.0.0.0"

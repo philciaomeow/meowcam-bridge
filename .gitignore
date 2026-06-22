@@ -5,3 +5,7 @@ __pycache__/
 
 # Local operator config generated at runtime
 meowcam-bridge.json
+
+# Virtual environments
+.venv/
+venv/
