@@ -23,6 +23,12 @@
     preset_labels: Array.from({ length: MAX_PRESETS }, (_, i) => `Preset ${i + 1}`),
   };
 
+  const SPEED_PRESETS = {
+    slow: { label: 'Slow', pan_speed: 4, tilt_speed: 3, zoom_speed: 2 },
+    medium: { label: 'Medium', pan_speed: 10, tilt_speed: 8, zoom_speed: 4 },
+    fast: { label: 'Fast', pan_speed: 18, tilt_speed: 14, zoom_speed: 7 },
+  };
+
   const state = {
     config: null,
     routes: [],
@@ -30,6 +36,9 @@
     presetEditMode: false,
     osdActive: false,
     editing: false,
+    lastPresets: JSON.parse(localStorage.getItem('meowcam:lastPresets') || '{}'),
+    cameraSpeeds: JSON.parse(localStorage.getItem('meowcam:cameraSpeeds') || '{}'),
+    globalSpeed: localStorage.getItem('meowcam:globalSpeed') || 'medium',
   };
 
   const $ = (selector) => document.querySelector(selector);
@@ -74,6 +83,44 @@
       pill.textContent = state.osdActive ? 'OSD active — PTZ may navigate menus' : 'OSD closed';
       pill.classList.toggle('active', state.osdActive);
     }
+  }
+
+  function speedModeFor(routeIndex) {
+    return state.cameraSpeeds[String(routeIndex)] || state.globalSpeed || 'medium';
+  }
+
+  function speedArgsFor(routeIndex) {
+    return SPEED_PRESETS[speedModeFor(routeIndex)] || SPEED_PRESETS.medium;
+  }
+
+  function persistSpeedState() {
+    localStorage.setItem('meowcam:globalSpeed', state.globalSpeed);
+    localStorage.setItem('meowcam:cameraSpeeds', JSON.stringify(state.cameraSpeeds));
+  }
+
+  function persistPresetState() {
+    localStorage.setItem('meowcam:lastPresets', JSON.stringify(state.lastPresets));
+  }
+
+  function applyManualSpeed(mode) {
+    const preset = SPEED_PRESETS[mode] || SPEED_PRESETS.medium;
+    state.globalSpeed = mode;
+    persistSpeedState();
+    const pan = $('#pan-speed');
+    const tilt = $('#tilt-speed');
+    const zoom = $('#zoom-speed');
+    if (pan) pan.value = preset.pan_speed;
+    if (tilt) tilt.value = preset.tilt_speed;
+    if (zoom) zoom.value = preset.zoom_speed;
+    $$('.speed-mode-btn').forEach((btn) => btn.classList.toggle('active', btn.dataset.speed === mode));
+    renderPresets();
+  }
+
+  function setCameraSpeed(routeIndex, mode) {
+    state.cameraSpeeds[String(routeIndex)] = mode;
+    persistSpeedState();
+    renderPresets();
+    showStatus(`Camera ${routeIndex + 1} speed set to ${SPEED_PRESETS[mode]?.label || mode}`, true);
   }
 
   async function request(path, options = {}) {
@@ -269,25 +316,43 @@
     const start = state.presetPage * 4;
     const routes = state.routes.slice(start, start + 4);
     routes.forEach((route) => {
+      const speedMode = speedModeFor(route.index);
       const card = document.createElement('article');
       card.className = `camera-preset-card ${route.enabled ? '' : 'disabled'}`;
       card.innerHTML = `
         <div class="camera-card-head">
-          <div><h3>${escapeHtml(route.label)}</h3><p>${escapeHtml(route.camera_ip)} · in ${route.incoming_port}</p></div>
+          <div><h3>${escapeHtml(route.label)}</h3><p>${escapeHtml(route.camera_ip)} · controller in ${route.incoming_port}</p></div>
           <span class="route-status ${escapeHtml(route.status || 'unknown')}">${route.enabled ? escapeHtml(route.status || 'unknown') : 'off'}</span>
+        </div>
+        <div class="camera-speed-bar" role="group" aria-label="${escapeHtml(route.label)} movement speed">
+          ${Object.entries(SPEED_PRESETS).map(([mode, preset]) => `<button class="camera-speed ${mode === speedMode ? 'active' : ''}" data-speed="${mode}">${preset.label}</button>`).join('')}
         </div>
         <div class="preset-buttons"></div>
       `;
+      card.querySelectorAll('.camera-speed').forEach((btn) => {
+        btn.addEventListener('click', (event) => {
+          event.stopPropagation();
+          setCameraSpeed(route.index, btn.dataset.speed);
+        });
+      });
       const buttons = card.querySelector('.preset-buttons');
       (route.preset_labels || DEFAULT_ROUTE.preset_labels).slice(0, MAX_PRESETS).forEach((label, i) => {
+        const presetNumber = i + 1;
         const btn = document.createElement('button');
-        btn.className = state.presetEditMode ? 'preset-btn editing' : 'preset-btn';
-        btn.innerHTML = `<strong>${i + 1}</strong><span>${escapeHtml(label || `Preset ${i + 1}`)}</span>`;
-        btn.title = state.presetEditMode ? 'Click to rename this preset' : 'Recall preset';
+        const isLast = Number(state.lastPresets[String(route.index)]) === presetNumber;
+        btn.className = `${state.presetEditMode ? 'preset-btn editing' : 'preset-btn'} ${isLast ? 'last-used' : ''}`;
+        btn.innerHTML = `<strong>${presetNumber}</strong><span>${escapeHtml(label || `Preset ${presetNumber}`)}</span>`;
+        btn.title = state.presetEditMode ? 'Click to rename this preset' : `Recall preset at ${SPEED_PRESETS[speedMode]?.label || 'Medium'} speed mode`;
         btn.disabled = !route.enabled && !state.presetEditMode;
         btn.addEventListener('click', () => {
-          if (state.presetEditMode) renamePreset(route.index, i).catch((err) => alert(`Rename failed: ${err.message}`));
-          else sendCommand(route.index, 'preset_recall', { preset: i + 1 });
+          if (state.presetEditMode) {
+            renamePreset(route.index, i).catch((err) => alert(`Rename failed: ${err.message}`));
+          } else {
+            state.lastPresets[String(route.index)] = presetNumber;
+            persistPresetState();
+            renderPresets();
+            sendCommand(route.index, 'preset_recall', { preset: presetNumber, ...speedArgsFor(route.index) });
+          }
         });
         buttons.appendChild(btn);
       });
@@ -299,9 +364,11 @@
   }
 
   function commandArgs(command) {
-    const panSpeed = Number($('#pan-speed')?.value || 3);
-    const tiltSpeed = Number($('#tilt-speed')?.value || 3);
-    const zoomSpeed = Number($('#zoom-speed')?.value || 3);
+    const routeIndex = Number($('#manual-camera-select')?.value || 0);
+    const modePreset = speedArgsFor(routeIndex);
+    const panSpeed = Number($('#pan-speed')?.value || modePreset.pan_speed);
+    const tiltSpeed = Number($('#tilt-speed')?.value || modePreset.tilt_speed);
+    const zoomSpeed = Number($('#zoom-speed')?.value || modePreset.zoom_speed);
     const args = {};
     if (command.startsWith('pan_') || command.startsWith('tilt_') || command === 'stop') {
       args.pan_speed = panSpeed;
@@ -403,6 +470,14 @@
       state.presetPage = Number(btn.dataset.page);
       renderPresets();
     }));
+    $$('.speed-mode-btn').forEach((btn) => btn.addEventListener('click', () => applyManualSpeed(btn.dataset.speed)));
+    $('#manual-camera-select')?.addEventListener('change', () => {
+      const routeIndex = Number($('#manual-camera-select')?.value || 0);
+      const preset = speedArgsFor(routeIndex);
+      $('#pan-speed').value = preset.pan_speed;
+      $('#tilt-speed').value = preset.tilt_speed;
+      $('#zoom-speed').value = preset.zoom_speed;
+    });
     $('#btn-edit-presets')?.addEventListener('click', () => {
       state.presetEditMode = !state.presetEditMode;
       renderPresets();
@@ -462,6 +537,7 @@
   }
 
   bindEvents();
+  applyManualSpeed(state.globalSpeed);
   loadNetworkInterfaces();
   loadConfig().catch((err) => {
     showStatus('Backend unavailable', false);

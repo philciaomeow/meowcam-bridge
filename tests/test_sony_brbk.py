@@ -33,10 +33,11 @@ class TestSonyBRCH900BRBKIP10:
         assert out_payload[0] == 0x81
         assert out_payload[1:] == payload[1:]
 
-    def test_encode_prepends_address_for_bridge_generated_payload(self):
+    def test_encode_translates_documented_menu_enter_to_direct_enter(self):
         p = SonyBRCH900BRBKIP10()
         state: dict = {}
-        # Bridge-generated UI/API commands omit the address byte.
+        # Documented/UI-controller Enter gets translated because BRC-H900 ACKs it
+        # but does not visually enter submenus; the direct-menu payload does.
         payload = b"\x01\x06\x06\x05\xFF"
         cmd = {"payload": payload, "payload_type": VISCA_COMMAND_TYPE}
         packet = p.encode(cmd, state)
@@ -44,7 +45,27 @@ class TestSonyBRCH900BRBKIP10:
         parsed = parse_visca_ip_packet(packet)
         assert parsed is not None
         _, _, _, out_payload = parsed
-        assert out_payload == b"\x81\x01\x06\x06\x05\xFF"
+        assert out_payload == b"\x81\x01\x7E\x01\x02\x00\x01\xFF"
+
+    def test_controller_osd_enter_payload_translates_to_direct_menu_enter(self):
+        p = SonyBRCH900BRBKIP10()
+        state: dict = {}
+        cmd = {"payload": b"\x81\x01\x06\x06\x05\xFF", "payload_type": VISCA_COMMAND_TYPE}
+        packet = p.encode(cmd, state)
+        assert packet is not None
+        parsed = parse_visca_ip_packet(packet)
+        assert parsed is not None
+        assert parsed[3] == b"\x81\x01\x7E\x01\x02\x00\x01\xFF"
+
+    def test_controller_osd_back_payload_translates_to_direct_menu_back(self):
+        p = SonyBRCH900BRBKIP10()
+        state: dict = {}
+        cmd = {"payload": b"\x81\x01\x06\x06\x04\xFF", "payload_type": VISCA_COMMAND_TYPE}
+        packet = p.encode(cmd, state)
+        assert packet is not None
+        parsed = parse_visca_ip_packet(packet)
+        assert parsed is not None
+        assert parsed[3] == b"\x81\x01\x7E\x01\x02\x00\x02\xFF"
 
     def test_sequence_increments(self):
         p = SonyBRCH900BRBKIP10()

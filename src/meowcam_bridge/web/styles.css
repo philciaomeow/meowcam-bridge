@@ -51,6 +51,7 @@ body {
 .eyebrow { margin: 0 0 4px; color: var(--accent); text-transform: uppercase; letter-spacing: .14em; font-size: .72rem; font-weight: 800; }
 h1, h2, h3, p { margin-top: 0; }
 h1 { margin: 0; font-size: clamp(1.8rem, 4vw, 3.4rem); line-height: .95; letter-spacing: -.06em; }
+h1 span { display: block; font-size: .48em; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
 .subhead, .section-head p { color: var(--muted); margin-bottom: 0; }
 .header-status { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
 .badge, .osd-pill, .route-status {
@@ -95,7 +96,7 @@ main { margin-top: 4px; }
 .notice { padding: 14px 16px; border-radius: 16px; border: 1px solid var(--border); margin-bottom: 16px; }
 .notice.warning { color: #2a1700; background: linear-gradient(135deg, rgba(255,209,102,.95), rgba(255,184,108,.9)); }
 
-.preset-grid { display: grid; grid-template-columns: repeat(2, minmax(280px, 1fr)); gap: 16px; }
+.preset-grid { display: grid; grid-template-columns: repeat(4, minmax(230px, 1fr)); gap: 16px; }
 .camera-preset-card, .control-card, .settings-card, .table-wrap, .log-view pre, .stats > div {
   background: var(--panel);
   border: 1px solid var(--border);
@@ -108,11 +109,15 @@ main { margin-top: 4px; }
 .camera-card-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 12px; }
 .camera-card-head h3 { margin: 0 0 4px; }
 .camera-card-head p { margin: 0; color: var(--muted); font-size: .85rem; }
-.preset-buttons { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-.preset-btn { min-height: 58px; border-radius: 14px; padding: .55rem; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; text-align: left; }
-.preset-btn strong { color: var(--accent); font-size: .75rem; }
-.preset-btn span { font-size: .82rem; }
+.preset-buttons { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.preset-btn { min-height: 82px; border-radius: 18px; padding: .8rem; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; text-align: left; }
+.preset-btn strong { color: var(--accent); font-size: .9rem; }
+.preset-btn span { font-size: .95rem; line-height: 1.15; }
 .preset-btn.editing { outline: 1px dashed rgba(255,184,108,.8); }
+.preset-btn.last-used { background: linear-gradient(135deg, rgba(98,211,148,.28), rgba(255,184,108,.2)); border-color: rgba(98,211,148,.75); box-shadow: 0 0 0 2px rgba(98,211,148,.18) inset; }
+.camera-speed-bar, .speed-mode-picker { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0; }
+.camera-speed, .speed-mode-btn { border-radius: 14px; padding: .55rem .35rem; font-size: .8rem; }
+.camera-speed.active, .speed-mode-btn.active { background: linear-gradient(135deg, var(--good), var(--accent)); color: #07120c; border-color: transparent; }
 
 .manual-layout { display: grid; grid-template-columns: 280px 1fr; gap: 16px; align-items: start; }
 .control-card { padding: 16px; }
@@ -162,6 +167,10 @@ input:focus, select:focus { border-color: rgba(255,184,108,.75); box-shadow: 0 0
 .log-view pre { margin: 0; padding: 16px; min-height: 260px; max-height: 420px; overflow: auto; color: #d2d8e8; font-size: .82rem; line-height: 1.5; }
 
 footer { padding: 18px 4px 4px; color: var(--muted); font-size: .85rem; }
+
+@media (max-width: 1250px) {
+  .preset-grid { grid-template-columns: repeat(2, minmax(260px, 1fr)); }
+}
 
 @media (max-width: 1050px) {
   .preset-grid, .manual-layout, .controls, .stats { grid-template-columns: 1fr; }

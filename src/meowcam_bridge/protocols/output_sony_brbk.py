@@ -86,10 +86,33 @@ class SonyBRCH900BRBKIP10(OutputProfile):
             return bytes([addr]) + payload[1:]
         return bytes([addr]) + payload
 
+    # Controller OSD buttons on the PT-JOY-G4 emit the documented BRC-H900
+    # menu select/back payloads. Live testing showed the camera ACKs/completes
+    # the documented Enter (`01 06 06 05 FF`) but does not visually enter the
+    # submenu. The direct-menu `7E` payloads do enter/back correctly, so translate
+    # controller-originated OSD navigation before Sony framing.
+    CONTROLLER_OSD_TRANSLATIONS: dict[bytes, bytes] = {
+        bytes([0x01, 0x06, 0x06, 0x05, 0xFF]): bytes([0x01, 0x7E, 0x01, 0x02, 0x00, 0x01, 0xFF]),
+        bytes([0x01, 0x06, 0x06, 0x04, 0xFF]): bytes([0x01, 0x7E, 0x01, 0x02, 0x00, 0x02, 0xFF]),
+    }
+
+    def _translate_controller_osd_payload(self, payload: bytes) -> bytes:
+        if not payload:
+            return payload
+        has_address = 0x81 <= payload[0] <= 0x88
+        body = payload[1:] if has_address else payload
+        translated = self.CONTROLLER_OSD_TRANSLATIONS.get(body)
+        if translated is None:
+            return payload
+        if has_address:
+            return bytes([payload[0]]) + translated
+        return translated
+
     def encode(self, cmd: dict[str, Any], route_state: dict[str, Any]) -> bytes | None:
         payload = cmd.get("payload")
         if payload is None:
             return None
+        payload = self._translate_controller_osd_payload(payload)
         payload = self._force_address(payload)
         payload_type = cmd.get("payload_type") or VISCA_COMMAND_TYPE
         seq = self._next_seq(route_state)

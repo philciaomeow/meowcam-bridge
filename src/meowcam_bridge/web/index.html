@@ -12,9 +12,9 @@
     <div class="brand-lockup">
       <div class="paw-logo" aria-hidden="true">🐾</div>
       <div>
-        <p class="eyebrow">onsite ptz helper</p>
-        <h1>MeowCam Bridge</h1>
-        <p class="subhead">Controller-to-camera VISCA bridge for Sony BRC-H900 rigs.</p>
+        <p class="eyebrow">MeowWorks onsite starter app</p>
+        <h1><span>MeowWorks</span> MeowCam Bridge</h1>
+        <p class="subhead">Touch-friendly controller-to-camera VISCA bridge for Sony BRC-H900 rigs.</p>
       </div>
     </div>
     <div class="header-status">
@@ -63,9 +63,14 @@
           <label>Select camera</label>
           <select id="manual-camera-select"></select>
           <div class="speed-grid">
-            <label>Pan speed <input id="pan-speed" type="range" min="1" max="24" value="3"><span>1–24</span></label>
-            <label>Tilt speed <input id="tilt-speed" type="range" min="1" max="17" value="3"><span>1–17</span></label>
-            <label>Zoom speed <input id="zoom-speed" type="range" min="1" max="7" value="3"><span>1–7</span></label>
+            <div class="speed-mode-picker" role="group" aria-label="Speed presets">
+              <button class="speed-mode-btn" data-speed="slow">Slow</button>
+              <button class="speed-mode-btn active" data-speed="medium">Medium</button>
+              <button class="speed-mode-btn" data-speed="fast">Fast</button>
+            </div>
+            <label>Pan speed <input id="pan-speed" type="range" min="1" max="24" value="10"><span>1–24</span></label>
+            <label>Tilt speed <input id="tilt-speed" type="range" min="1" max="17" value="8"><span>1–17</span></label>
+            <label>Zoom speed <input id="zoom-speed" type="range" min="1" max="7" value="4"><span>1–7</span></label>
           </div>
         </aside>
         <div class="controls">
@@ -155,7 +160,7 @@
     </section>
   </main>
 
-  <footer>MeowCam Bridge v0.1 — local onsite PTZ bridge · made by the meow team</footer>
+  <footer>MeowWorks · MeowCam Bridge v0.1 — local onsite PTZ bridge · made by the meow team</footer>
 </div>
 <script src="/static/app.js"></script>
 </body>
