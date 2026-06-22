@@ -1,0 +1,89 @@
+{
+  "bridge_ip": "0.0.0.0",
+  "bridge_ui_port": 8080,
+  "controller_bind_ip": "0.0.0.0",
+  "routes": [
+    {
+      "enabled": true,
+      "label": "Camera 1",
+      "incoming_port": 52382,
+      "input_profile": "ptzoptics_pt_joy_g4_visca_udp",
+      "output_profile": "sony_brc_h900_brbk_ip10",
+      "camera_ip": "192.168.51.123",
+      "camera_port": 52381,
+      "status": "ok",
+      "movement_speed": "medium",
+      "preset_labels": ["Wide Shot", "Drum Rise", "Preset 3", "Preset 4", "Preset 5", "Preset 6", "Preset 7", "Preset 8", "Preset 9", "Preset 10", "Preset 11", "Preset 12", "Preset 13", "Preset 14", "Preset 15", "Preset 16"],
+      "video": {
+        "enabled": true,
+        "source_type": "testpattern",
+        "resolution": "640x360",
+        "frame_rate": 15,
+        "jpeg_quality": 70
+      }
+    },
+    {
+      "enabled": true,
+      "label": "Camera 2",
+      "incoming_port": 52383,
+      "input_profile": "ptzoptics_pt_joy_g4_visca_udp",
+      "output_profile": "sony_brc_h900_brbk_ip10",
+      "camera_ip": "192.168.51.124",
+      "camera_port": 52381,
+      "status": "ok",
+      "movement_speed": "medium",
+      "preset_labels": ["Stage Left", "Vocal Close", "Preset 3", "Preset 4", "Preset 5", "Preset 6", "Preset 7", "Preset 8", "Preset 9", "Preset 10", "Preset 11", "Preset 12", "Preset 13", "Preset 14", "Preset 15", "Preset 16"],
+      "video": {
+        "enabled": true,
+        "source_type": "testpattern",
+        "resolution": "640x360",
+        "frame_rate": 15,
+        "jpeg_quality": 70
+      }
+    },
+    {
+      "enabled": true,
+      "label": "Camera 3",
+      "incoming_port": 52384,
+      "input_profile": "ptzoptics_pt_joy_g4_visca_udp",
+      "output_profile": "sony_brc_h900_brbk_ip10",
+      "camera_ip": "192.168.51.125",
+      "camera_port": 52381,
+      "status": "ok",
+      "movement_speed": "medium",
+      "preset_labels": ["Crowd Wide", "Crowd Close", "Preset 3", "Preset 4", "Preset 5", "Preset 6", "Preset 7", "Preset 8", "Preset 9", "Preset 10", "Preset 11", "Preset 12", "Preset 13", "Preset 14", "Preset 15", "Preset 16"],
+      "video": {
+        "enabled": true,
+        "source_type": "testpattern",
+        "resolution": "640x360",
+        "frame_rate": 15,
+        "jpeg_quality": 70
+      }
+    },
+    {
+      "enabled": true,
+      "label": "Camera 4",
+      "incoming_port": 52385,
+      "input_profile": "ptzoptics_pt_joy_g4_visca_udp",
+      "output_profile": "sony_brc_h900_brbk_ip10",
+      "camera_ip": "192.168.51.126",
+      "camera_port": 52381,
+      "status": "ok",
+      "movement_speed": "medium",
+      "preset_labels": ["Back Stage", "Overhead", "Preset 3", "Preset 4", "Preset 5", "Preset 6", "Preset 7", "Preset 8", "Preset 9", "Preset 10", "Preset 11", "Preset 12", "Preset 13", "Preset 14", "Preset 15", "Preset 16"],
+      "video": {
+        "enabled": true,
+        "source_type": "testpattern",
+        "resolution": "640x360",
+        "frame_rate": 15,
+        "jpeg_quality": 70
+      }
+    }
+  ],
+  "atem": {
+    "enabled": false,
+    "atem_ip": "192.168.51.240",
+    "supersource_aux_output": 1,
+    "input_mapping": [1, 2, 3, 4, 5, 6, 7, 8]
+  }
+}

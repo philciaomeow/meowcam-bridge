@@ -294,6 +294,47 @@ async def post_command(payload: dict) -> dict:
     }
 
 
+@app.get("/api/ndi/sources")
+async def ndi_sources() -> dict:
+    """Discover available NDI sources on the network.
+
+    Returns {sources: [{name: str, url: str}], available: bool}.
+    If NDI is not installed, returns available=False with an empty list.
+    """
+    try:
+        import NDIlib as _ndi  # type: ignore[import-untyped]
+    except ImportError:
+        return {"sources": [], "available": False, "error": "ndi-python not installed"}
+
+    try:
+        if not _ndi.initialize():
+            return {"sources": [], "available": False, "error": "NDIlib.initialize() failed"}
+
+        ndi_find = _ndi.find_create_v2()
+        if ndi_find is None:
+            _ndi.destroy()
+            return {"sources": [], "available": False, "error": "find_create_v2() failed"}
+
+        # Wait for sources to appear
+        sources = []
+        for _ in range(3):
+            _ndi.find_wait_for_sources(ndi_find, 1000)
+            sources = _ndi.find_get_current_sources(ndi_find)
+
+        result = []
+        for s in sources:
+            result.append({
+                "ndi_name": s.ndi_name,
+                "url_address": s.url_address,
+            })
+
+        _ndi.find_destroy(ndi_find)
+        _ndi.destroy()
+        return {"sources": result, "available": True}
+    except Exception as exc:
+        return {"sources": [], "available": False, "error": str(exc)}
+
+
 # ---------------------------------------------------------------------------
 # Network interfaces
 # ---------------------------------------------------------------------------
@@ -302,37 +343,41 @@ async def post_command(payload: dict) -> dict:
 async def get_network_interfaces() -> list[dict]:
     """Return local network interface IPs for the bridge IP dropdown."""
     interfaces = []
+    # Primary: use netifaces to enumerate ALL interfaces properly
     try:
-        hostname = socket.gethostname()
-        for info in socket.getaddrinfo(hostname, None, socket.AF_INET):
-            ip = info[4][0]
-            if ip == "127.0.0.1":
+        import netifaces
+        for iface_name in netifaces.interfaces():
+            if iface_name == "lo":
                 continue
-            name = "interface"
-            try:
-                import netifaces
-                for iface_name in netifaces.interfaces():
-                    addrs = netifaces.ifaddresses(iface_name)
-                    ipv4s = addrs.get(netifaces.AF_INET, [])
-                    for addr in ipv4s:
-                        if addr.get("addr") == ip:
-                            name = iface_name
-                            break
-            except ImportError:
-                pass
+            addrs = netifaces.ifaddresses(iface_name)
+            ipv4s = addrs.get(netifaces.AF_INET, [])
+            for addr in ipv4s:
+                ip = addr.get("addr", "")
+                if ip == "127.0.0.1" or ip.startswith("127."):
+                    continue
+                if not any(i["ip"] == ip for i in interfaces):
+                    interfaces.append({"ip": ip, "name": iface_name})
+    except ImportError:
+        # Fallback: hostname resolution + socket trick
+        try:
+            hostname = socket.gethostname()
+            for info in socket.getaddrinfo(hostname, None, socket.AF_INET):
+                ip = info[4][0]
+                if ip == "127.0.0.1" or ip.startswith("127."):
+                    continue
+                if not any(i["ip"] == ip for i in interfaces):
+                    interfaces.append({"ip": ip, "name": "interface"})
+        except Exception:
+            pass
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
             if not any(i["ip"] == ip for i in interfaces):
-                interfaces.append({"ip": ip, "name": name})
-    except Exception:
-        pass
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
-        s.close()
-        if not any(i["ip"] == ip for i in interfaces):
-            interfaces.append({"ip": ip, "name": "primary"})
-    except Exception:
-        pass
+                interfaces.append({"ip": ip, "name": "primary"})
+        except Exception:
+            pass
     return interfaces
 
 

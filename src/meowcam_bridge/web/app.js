@@ -49,8 +49,8 @@
   };
 
   const PAGE_DESCRIPTIONS = {
-    preview: 'Live 2×2 camera grid with preset recall per column.',
-    presets: 'Four cameras at a time, big touch-friendly preset controls.',
+    preview: '2×2 live camera grid — click any feed to enlarge.',
+    presets: 'Four cameras at a time, big touch-friendly preset controls with speed.',
     manual: 'Single live pane for the selected camera + PTZ / lens / OSD controls.',
     diagnostics: 'Live controller → bridge → camera packet trace for site checks.',
     settings: 'Per-camera Control + Video setup, plus ATEM configuration.',
@@ -421,9 +421,8 @@
 
   function buildPreviewCell(camIndex) {
     const route = state.routes[camIndex];
-    const speedMode = speedModeFor(camIndex);
     const cell = document.createElement('article');
-    cell.className = `preview-cell camera-preset-card ${route.enabled ? '' : 'disabled'}`;
+    cell.className = `preview-cell preview-video-only ${route.enabled ? '' : 'disabled'}`;
     cell.dataset.cam = String(camIndex);
     cell.innerHTML = `
       <div class="video-pane off" data-cam="${camIndex}">
@@ -435,24 +434,11 @@
         <div class="video-stall">Reconnecting…<small>feed paused</small></div>
         <div class="video-off"><span class="cam-icon">📷</span><span class="vid-off-text">No video source</span></div>
       </div>
-      <div class="camera-card-head">
-        <div><h3>${escapeHtml(route.label)}</h3><p>${escapeHtml(route.camera_ip)} · ${escapeHtml((route.video?.source_type || 'none').toUpperCase())}</p></div>
+      <div class="preview-cell-footer">
+        <span class="preview-cam-label">${escapeHtml(route.label)}</span>
         <span class="route-status ${escapeHtml(route.status || 'unknown')}">${route.enabled ? escapeHtml(route.status || 'unknown') : 'off'}</span>
       </div>
-      <div class="camera-speed-bar">
-        ${Object.entries(SPEED_PRESETS).map(([mode, p]) => `<button class="camera-speed ${mode === speedMode ? 'active' : ''}" data-speed="${mode}">${p.label}</button>`).join('')}
-      </div>
-      <div class="preset-buttons"></div>
-      <div class="preview-enlarge-hint">click video to enlarge</div>
     `;
-    const pbc = cell.querySelector('.preset-buttons');
-    for (let i = 0; i < MAX_PRESETS; i += 1) pbc.appendChild(makePresetButton(route, i, speedMode));
-    cell.querySelectorAll('.camera-speed').forEach((btn) => {
-      btn.addEventListener('click', (event) => {
-        event.stopPropagation();
-        setCameraSpeed(camIndex, btn.dataset.speed).catch((err) => alert(`Speed save failed: ${err.message}`));
-      });
-    });
     cell.querySelector('.video-pane').addEventListener('click', () => toggleEnlarge(camIndex));
     return cell;
   }
@@ -475,25 +461,16 @@
       const ci = Number(cell.dataset.cam);
       const route = state.routes[ci];
       if (!route) return;
-      const speedMode = speedModeFor(ci);
       cell.classList.toggle('disabled', !route.enabled);
-      const h3 = cell.querySelector('.camera-card-head h3');
-      if (h3) h3.textContent = route.label;
-      const p = cell.querySelector('.camera-card-head p');
-      if (p) p.textContent = `${route.camera_ip} · ${(route.video?.source_type || 'none').toUpperCase()}`;
+      const lab = cell.querySelector('.preview-cam-label');
+      if (lab) lab.textContent = route.label;
       const st = cell.querySelector('.route-status');
       if (st) {
         st.className = `route-status ${escapeHtml(route.status || 'unknown')}`;
         st.textContent = route.enabled ? (route.status || 'unknown') : 'off';
       }
-      cell.querySelectorAll('.camera-speed').forEach((b) => b.classList.toggle('active', b.dataset.speed === speedMode));
-      const pbc = cell.querySelector('.preset-buttons');
-      if (pbc) {
-        pbc.innerHTML = '';
-        for (let i = 0; i < MAX_PRESETS; i += 1) pbc.appendChild(makePresetButton(route, i, speedMode));
-      }
-      const lab = cell.querySelector('.vid-label');
-      if (lab) lab.textContent = route.label;
+      const vidLab = cell.querySelector('.vid-label');
+      if (vidLab) vidLab.textContent = route.label;
     });
   }
 
@@ -673,7 +650,12 @@
             <h3>🎥 Camera Video Setup</h3>
             <div class="field"><label>Video preview</label><label class="switch"><input data-v="enabled" type="checkbox" ${v.enabled ? 'checked' : ''}><span></span></label></div>
             <div class="field"><label>Source type</label><select data-v="source_type">${optionsHtml(VIDEO_SOURCE_TYPES, v.source_type || 'none')}</select></div>
-            <div class="field"><label>NDI source name</label><input data-v="ndi_source_name" type="text" placeholder="e.g. CAM1 (Birddog)" value="${escapeHtml(v.ndi_source_name || '')}"></div>
+            <div class="field ndi-field"><label>NDI source</label>
+              <div class="ndi-picker">
+                <select data-v="ndi_source_name" class="ndi-select"><option value="">— Select NDI source —</option></select>
+                <button type="button" class="ndi-discover-btn" data-action="ndi-discover">🔍 Discover</button>
+              </div>
+            </div>
             <div class="field"><label>USB device index</label><input data-v="usb_device_index" type="number" min="0" max="15" value="${v.usb_device_index ?? 0}"></div>
             <div class="field"><label>Resolution</label><select data-v="resolution">${optionsHtml(resolutionList(), v.resolution || '640x360')}</select></div>
             <div class="field"><label>Frame rate</label><input data-v="frame_rate" type="number" min="1" max="30" value="${v.frame_rate ?? 8}"></div>
@@ -689,8 +671,59 @@
         el.addEventListener('focus', () => { state.editing = true; });
         el.addEventListener('change', () => { state.editing = true; });
       });
+      // Pre-populate NDI select with current value
+      const ndiSel = block.querySelector('.ndi-select');
+      if (ndiSel && v.ndi_source_name) {
+        const opt = document.createElement('option');
+        opt.value = v.ndi_source_name;
+        opt.textContent = v.ndi_source_name;
+        ndiSel.appendChild(opt);
+        ndiSel.value = v.ndi_source_name;
+      }
+      // NDI discover button
+      block.querySelector('.ndi-discover-btn')?.addEventListener('click', () => {
+        discoverNdi(block).catch((err) => alert(`NDI discovery failed: ${err.message}`));
+      });
       wrap.appendChild(block);
     });
+  }
+
+  async function discoverNdi(block) {
+    const sel = block.querySelector('.ndi-select');
+    if (!sel) return;
+    const btn = block.querySelector('.ndi-discover-btn');
+    if (btn) { btn.disabled = true; btn.textContent = '🔍 Searching…'; }
+    try {
+      const res = await request('/api/ndi/sources');
+      const current = sel.value;
+      sel.innerHTML = '<option value="">— Select NDI source —</option>';
+      if (!res.available) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = res.error || 'NDI not available';
+        opt.disabled = true;
+        sel.appendChild(opt);
+        showStatus('NDI not available — ' + (res.error || 'unknown'), false);
+      } else if (res.sources.length === 0) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'No NDI sources found on network';
+        opt.disabled = true;
+        sel.appendChild(opt);
+        showStatus('No NDI sources found', true);
+      } else {
+        res.sources.forEach((src) => {
+          const opt = document.createElement('option');
+          opt.value = src.ndi_name;
+          opt.textContent = src.ndi_name;
+          sel.appendChild(opt);
+        });
+        if (current) sel.value = current;
+        showStatus(`Found ${res.sources.length} NDI source${res.sources.length !== 1 ? 's' : ''}`, true);
+      }
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '🔍 Discover'; }
+    }
   }
 
   function readRouteBlock(block) {
