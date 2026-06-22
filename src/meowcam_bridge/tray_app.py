@@ -32,7 +32,9 @@ logger = logging.getLogger(__name__)
 
 # Config path: alongside the exe (PyInstaller) or cwd (dev)
 if getattr(sys, "frozen", False):
-    _BASE_DIR = Path(sys.executable).parent
+    # PyInstaller --onedir: sys.executable is in dist/MeowCamBridge/MeowCamBridge.exe
+    # PyInstaller --onefile: sys.executable is the exe itself; _MEIPASS is the temp extract dir
+    _BASE_DIR = Path(sys.executable).resolve().parent
 else:
     _BASE_DIR = Path.cwd()
 
@@ -43,14 +45,21 @@ LOG_FILE = LOG_DIR / "bridge.log"
 
 def _setup_logging() -> None:
     """Set up file logging for the packaged app."""
-    LOG_DIR.mkdir(exist_ok=True)
+    global LOG_DIR, LOG_FILE
+    try:
+        LOG_DIR.mkdir(exist_ok=True)
+    except Exception:
+        # If we can't create a log dir next to the exe, fall back to temp
+        import tempfile
+        LOG_DIR = Path(tempfile.gettempdir()) / "MeowCamBridge"
+        LOG_DIR.mkdir(exist_ok=True)
+        LOG_FILE = LOG_DIR / "bridge.log"
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         handlers=[
             logging.FileHandler(str(LOG_FILE), encoding="utf-8"),
-            logging.StreamHandler(sys.stdout),
-        ],
+        ],  # No StreamHandler in windowed mode (no stdout)
     )
 
 
@@ -214,39 +223,44 @@ def main() -> int:
     """Entry point for the tray app."""
     _setup_logging()
     logger.info("MeowCam Bridge tray app starting (v0.1.1)")
+    logger.info("BASE_DIR=%s CONFIG_PATH=%s", _BASE_DIR, CONFIG_PATH)
 
-    host = "0.0.0.0"
-    port = 8080
+    try:
+        host = "0.0.0.0"
+        port = 8080
 
-    # Start server in background thread
-    server_thread = _start_server_thread(host, port, str(CONFIG_PATH))
-    if server_thread is None:
-        print("Failed to start MeowCam Bridge server. Check logs/bridge.log for details.")
+        # Start server in background thread
+        server_thread = _start_server_thread(host, port, str(CONFIG_PATH))
+        if server_thread is None:
+            logger.error("Failed to start server thread")
+            return 1
+
+        # Show loading screen while waiting for server
+        ready_event = threading.Event()
+
+        def _wait_and_signal():
+            if _wait_for_server("127.0.0.1", port, timeout=15):
+                ready_event.set()
+            else:
+                logger.warning("Server did not become ready within 15s")
+                ready_event.set()  # Close loading screen anyway
+
+        waiter = threading.Thread(target=_wait_and_signal, daemon=True)
+        waiter.start()
+
+        _show_loading_screen(ready_event)
+
+        # Open browser automatically on first start
+        webbrowser.open(f"http://localhost:{port}")
+
+        # Run tray icon (blocks until user quits)
+        _run_tray(host, port)
+
+        logger.info("MeowCam Bridge shutting down")
+        return 0
+    except Exception:
+        logger.exception("Fatal error in tray app")
         return 1
-
-    # Show loading screen while waiting for server
-    ready_event = threading.Event()
-
-    def _wait_and_signal():
-        if _wait_for_server("127.0.0.1", port, timeout=15):
-            ready_event.set()
-        else:
-            logger.warning("Server did not become ready within 15s")
-            ready_event.set()  # Close loading screen anyway
-
-    waiter = threading.Thread(target=_wait_and_signal, daemon=True)
-    waiter.start()
-
-    _show_loading_screen(ready_event)
-
-    # Open browser automatically on first start
-    webbrowser.open(f"http://localhost:{port}")
-
-    # Run tray icon (blocks until user quits)
-    _run_tray(host, port)
-
-    logger.info("MeowCam Bridge shutting down")
-    return 0
 
 
 if __name__ == "__main__":

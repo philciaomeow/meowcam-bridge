@@ -20,17 +20,22 @@ Output:
 
 from PyInstaller.building.build_main import Analysis, PYZ, EXE, COLLECT
 import pathlib
+import os
+
+# PyInstaller exec's the spec file, so __file__ is not defined.
+# SPECPATH is the directory containing the spec file.
+spec_dir = pathlib.Path(os.environ.get("SPECPATH", os.path.dirname(os.path.abspath(__file__)) if "__file__" in dir() else os.getcwd()))
 
 # Path to the web UI static files so they get embedded
-web_dir = pathlib.Path(__file__).parent / "src" / "meowcam_bridge" / "web"
+web_dir = spec_dir / "src" / "meowcam_bridge" / "web"
 
 added_files = []
 if web_dir.exists():
     added_files.append((str(web_dir), "meowcam_bridge/web"))
 
 a = Analysis(
-    ["src/meowcam_bridge/tray_app.py"],
-    pathex=["src"],
+    [str(spec_dir / "src" / "meowcam_bridge" / "tray_app.py")],
+    pathex=[str(spec_dir / "src")],
     binaries=[],
     datas=added_files,
     hiddenimports=[
