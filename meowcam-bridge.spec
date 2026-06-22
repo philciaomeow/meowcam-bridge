@@ -1,18 +1,21 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-PyInstaller spec stub for MeowCam Bridge.
+PyInstaller spec for MeowCam Bridge — Windows system tray app.
+
+Builds MeowCamBridge.exe (windowed, no console) that:
+  - Shows a tkinter loading screen on startup
+  - Starts the uvicorn/FastAPI server in-process
+  - Shows a system tray icon with Open/Close menu
+  - Bundles Python so no separate install is needed
 
 To build:
-    pyinstaller meowcam-bridge.spec --clean
+    python build_windows.py
+
+Or directly:
+    pyinstaller meowcam-bridge.spec --clean --noconfirm
 
 Output:
-    dist/meowcam-bridge/  (standalone folder, or single .exe if console=False)
-
-Before building:
-1. Bridge core must be complete and tested.
-2. Decide: console=True (logs visible) vs console=False (windowed, logs to file).
-3. Add an icon file and update icon= below.
-4. Test on a real Windows machine for firewall and port binding behaviour.
+    dist/MeowCamBridge/MeowCamBridge.exe  (onedir mode, faster startup)
 """
 
 from PyInstaller.building.build_main import Analysis, PYZ, EXE, COLLECT
@@ -26,8 +29,8 @@ if web_dir.exists():
     added_files.append((str(web_dir), "meowcam_bridge/web"))
 
 a = Analysis(
-    ["src/meowcam_bridge/app.py"],
-    pathex=[],
+    ["src/meowcam_bridge/tray_app.py"],
+    pathex=["src"],
     binaries=[],
     datas=added_files,
     hiddenimports=[
@@ -35,8 +38,24 @@ a = Analysis(
         "uvicorn.loops.auto",
         "uvicorn.protocols.http.auto",
         "uvicorn.protocols.websockets.auto",
+        "uvicorn.lifespan.on",
         "fastapi",
         "pydantic",
+        "pystray",
+        "PIL",
+        "PIL.Image",
+        "PIL.ImageDraw",
+        "tkinter",
+        "meowcam_bridge.app",
+        "meowcam_bridge.bridge",
+        "meowcam_bridge.config",
+        "meowcam_bridge.protocols",
+        "meowcam_bridge.protocols.base",
+        "meowcam_bridge.protocols.visca",
+        "meowcam_bridge.protocols.visca_commands",
+        "meowcam_bridge.protocols.input_ptzoptics",
+        "meowcam_bridge.protocols.input_ptzoptics_visca_udp",
+        "meowcam_bridge.protocols.output_sony_brbk",
     ],
     hookspath=[],
     hooksconfig={},
@@ -51,21 +70,27 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
-    name="meowcam-bridge",
+    exclude_binaries=True,
+    name="MeowCamBridge",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=True,  # Set False for windowed mode (no console). See PACKAGING.md.
+    console=False,  # No console window — tray app only
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
     # icon="assets/icon.ico",  # Uncomment when an icon is available
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    name="MeowCamBridge",
 )
