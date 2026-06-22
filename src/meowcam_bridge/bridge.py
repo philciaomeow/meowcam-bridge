@@ -807,9 +807,11 @@ class BridgeCore:
             case "stop":
                 return bytes([0x01, 0x06, 0x01, 0x01, 0x01, 0x03, 0x03, 0xFF])
             case "zoom_in":
-                return bytes([0x01, 0x04, 0x07, 0x02, 0xFF])
+                zoom_speed = max(1, min(7, int(args.get("zoom_speed", 3))))
+                return bytes([0x01, 0x04, 0x07, 0x20 + zoom_speed, 0xFF])
             case "zoom_out":
-                return bytes([0x01, 0x04, 0x07, 0x03, 0xFF])
+                zoom_speed = max(1, min(7, int(args.get("zoom_speed", 3))))
+                return bytes([0x01, 0x04, 0x07, 0x30 + zoom_speed, 0xFF])
             case "focus_near":
                 return bytes([0x01, 0x04, 0x08, 0x02, 0xFF])
             case "focus_far":
@@ -831,9 +833,9 @@ class BridgeCore:
             case "menu_close":
                 return bytes([0x01, 0x06, 0x06, 0x03, 0xFF])
             case "menu_enter":
-                return bytes([0x01, 0x06, 0x06, 0x05, 0xFF])
+                return bytes([0x01, 0x7E, 0x01, 0x02, 0x00, 0x01, 0xFF])
             case "menu_back":
-                return bytes([0x01, 0x06, 0x06, 0x04, 0xFF])
+                return bytes([0x01, 0x7E, 0x01, 0x02, 0x00, 0x02, 0xFF])
             case _:
                 return None
 

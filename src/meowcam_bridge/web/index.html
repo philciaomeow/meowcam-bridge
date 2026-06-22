@@ -7,113 +7,156 @@
 <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-<header>
-  <h1>MeowCam Bridge</h1>
-  <span id="status-indicator" class="badge">Loading…</span>
-</header>
-
-<nav id="tabs">
-  <button class="tab-btn active" data-tab="presets">Presets</button>
-  <button class="tab-btn" data-tab="manual">Manual Control</button>
-  <button class="tab-btn" data-tab="diagnostics">Diagnostics</button>
-  <button class="tab-btn" data-tab="settings">Settings</button>
-</nav>
-
-<main>
-  <section id="presets" class="tab-panel active">
-    <h2>Presets</h2>
-    <div class="field-row">
-      <label>Select Camera</label>
-      <select id="preset-camera-select"></select>
-    </div>
-    <div id="preset-grid" class="grid"></div>
-  </section>
-
-  <section id="manual" class="tab-panel">
-    <h2>Manual Control</h2>
-    <div class="field-row">
-      <label>Select Camera</label>
-      <select id="manual-camera-select"></select>
-    </div>
-    <div class="controls">
-      <div class="ptz-pad">
-        <button data-cmd="pan_left">◀ Pan Left</button>
-        <button data-cmd="tilt_up">▲ Tilt Up</button>
-        <button data-cmd="tilt_down">▼ Tilt Down</button>
-        <button data-cmd="pan_right">Pan Right ▶</button>
-        <button data-cmd="stop" class="stop">Stop</button>
-      </div>
-      <div class="zoom-focus">
-        <button data-cmd="zoom_in">Zoom In +</button>
-        <button data-cmd="zoom_out">Zoom Out -</button>
-        <button data-cmd="focus_near">Focus Near</button>
-        <button data-cmd="focus_far">Focus Far</button>
-        <button data-cmd="autofocus">Autofocus Toggle</button>
-      </div>
-      <div class="osd-controls">
-        <button data-cmd="menu_open">Menu Open</button>
-        <button data-cmd="menu_enter">Enter</button>
-        <button data-cmd="menu_back">Back</button>
-        <button data-cmd="menu_close">Menu Close</button>
-      </div>
-      <div class="preset-actions">
-        <label>Save Preset # <input type="number" id="save-preset-num" min="1" max="16" value="1"></label>
-        <button id="btn-save-preset">Save Preset</button>
-        <label>Recall Preset # <input type="number" id="recall-preset-num" min="1" max="16" value="1"></label>
-        <button id="btn-recall-preset">Recall Preset</button>
+<div class="app-shell">
+  <header class="hero">
+    <div class="brand-lockup">
+      <div class="paw-logo" aria-hidden="true">🐾</div>
+      <div>
+        <p class="eyebrow">onsite ptz helper</p>
+        <h1>MeowCam Bridge</h1>
+        <p class="subhead">Controller-to-camera VISCA bridge for Sony BRC-H900 rigs.</p>
       </div>
     </div>
-  </section>
+    <div class="header-status">
+      <span id="osd-pill" class="osd-pill">OSD closed</span>
+      <span id="status-indicator" class="badge">Loading…</span>
+    </div>
+  </header>
 
-  <section id="diagnostics" class="tab-panel">
-    <h2>Diagnostics</h2>
-    <div class="log-view">
-      <pre id="event-log">No events yet.</pre>
-    </div>
-    <div class="stats">
-      <div><strong>Last Controller:</strong> <span id="last-controller">—</span></div>
-      <div><strong>Last Command:</strong> <span id="last-command">—</span></div>
-      <div><strong>Last Camera Reply:</strong> <span id="last-reply">—</span></div>
-      <div><strong>Routes:</strong> <span id="route-status">—</span></div>
-    </div>
-    <button id="btn-reset-routes">Reset Route States</button>
-  </section>
+  <nav id="tabs" class="tabs">
+    <button class="tab-btn active" data-tab="presets">Presets</button>
+    <button class="tab-btn" data-tab="manual">Manual Control</button>
+    <button class="tab-btn" data-tab="diagnostics">Diagnostics</button>
+    <button class="tab-btn" data-tab="settings">Settings</button>
+  </nav>
 
-  <section id="settings" class="tab-panel">
-    <h2>Settings</h2>
-    <div class="field-row">
-      <label>Bridge IP</label>
-      <select id="bridge-ip-select">
-        <option value="0.0.0.0">0.0.0.0 (all interfaces)</option>
-      </select>
-      <input type="text" id="bridge-ip-manual" placeholder="or type IP" style="max-width:140px">
-      <button id="btn-save-bridge-ip">Save Bridge IP</button>
-    </div>
-    <div class="field-row">
-      <label>Controller Profile</label>
-      <select id="controller-profile">
-        <option value="ptzoptics_pt_joy_g4_sony_visca_udp">PTZOptics PT-JOY-G4 (Sony VISCA UDP)</option>
-      </select>
-    </div>
-    <h3>Camera Routes</h3>
-    <table id="routes-table">
-      <thead>
-        <tr><th>#</th><th>Enabled</th><th>Label</th><th>Incoming Port</th><th>Output Profile</th><th>Camera IP</th><th>Camera Port</th><th>Status</th><th></th></tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-    <div class="actions">
-      <button id="btn-export">Export Config</button>
-      <button id="btn-import">Import Config</button>
-      <input type="file" id="import-file" accept=".json" hidden>
-    </div>
-  </section>
-</main>
+  <main>
+    <section id="presets" class="tab-panel active">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">quick playback</p>
+          <h2>Preset recall</h2>
+          <p>Four cameras at a time, with editable friendly preset names.</p>
+        </div>
+        <div class="toolbar">
+          <button class="preset-page-btn active" data-page="0">Cameras 1–4</button>
+          <button class="preset-page-btn" data-page="1">Cameras 5–8</button>
+          <button id="btn-edit-presets" class="accent">Edit preset names</button>
+        </div>
+      </div>
+      <div id="preset-grid" class="preset-grid"></div>
+    </section>
 
-<footer>
-  <p>MeowCam Bridge v0.1.0 — Local onsite PTZ bridge</p>
-</footer>
+    <section id="manual" class="tab-panel">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">fallback controls</p>
+          <h2>Manual control</h2>
+          <p>Use this if the hardware controller is missing, or for quick checks.</p>
+        </div>
+      </div>
+      <div id="osd-warning" class="notice warning" hidden>
+        <strong>OSD menu is active.</strong> Pan/tilt/joystick controls may navigate the camera menu instead of moving the shot. Close the menu to return to normal PTZ movement.
+      </div>
+      <div class="manual-layout">
+        <aside class="control-card">
+          <label>Select camera</label>
+          <select id="manual-camera-select"></select>
+          <div class="speed-grid">
+            <label>Pan speed <input id="pan-speed" type="range" min="1" max="24" value="3"><span>1–24</span></label>
+            <label>Tilt speed <input id="tilt-speed" type="range" min="1" max="17" value="3"><span>1–17</span></label>
+            <label>Zoom speed <input id="zoom-speed" type="range" min="1" max="7" value="3"><span>1–7</span></label>
+          </div>
+        </aside>
+        <div class="controls">
+          <div class="control-card">
+            <h3>Pan / Tilt</h3>
+            <div class="ptz-pad">
+              <button data-cmd="pan_left">◀</button>
+              <button data-cmd="tilt_up">▲</button>
+              <button data-cmd="tilt_down">▼</button>
+              <button data-cmd="pan_right">▶</button>
+              <button data-cmd="stop" class="stop">Stop</button>
+            </div>
+          </div>
+          <div class="control-card button-stack">
+            <h3>Lens</h3>
+            <button data-cmd="zoom_in">Zoom In +</button>
+            <button data-cmd="zoom_out">Zoom Out −</button>
+            <button data-cmd="focus_near">Focus Near</button>
+            <button data-cmd="focus_far">Focus Far</button>
+            <button data-cmd="autofocus">Autofocus Toggle</button>
+          </div>
+          <div class="control-card button-stack">
+            <h3>OSD Menu</h3>
+            <button data-cmd="menu_open">Menu Open</button>
+            <button data-cmd="menu_enter">Enter / Right</button>
+            <button data-cmd="menu_back">Back / Left</button>
+            <button data-cmd="menu_close">Menu Close</button>
+          </div>
+          <div class="control-card preset-actions">
+            <h3>Preset tools</h3>
+            <label>Save # <input type="number" id="save-preset-num" min="1" max="16" value="1"></label>
+            <button id="btn-save-preset">Save Preset</button>
+            <label>Recall # <input type="number" id="recall-preset-num" min="1" max="16" value="1"></label>
+            <button id="btn-recall-preset">Recall Preset</button>
+          </div>
+        </div>
+      </div>
+    </section>
 
+    <section id="diagnostics" class="tab-panel">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">packet trace</p>
+          <h2>Diagnostics</h2>
+          <p>Useful when checking controller → bridge → camera traffic on site.</p>
+        </div>
+        <button id="btn-reset-routes">Reset Route States</button>
+      </div>
+      <div class="stats">
+        <div><strong>Last Controller</strong><span id="last-controller">—</span></div>
+        <div><strong>Last Command</strong><span id="last-command">—</span></div>
+        <div><strong>Last Camera Reply</strong><span id="last-reply">—</span></div>
+        <div><strong>Routes</strong><span id="route-status">—</span></div>
+      </div>
+      <div class="log-view"><pre id="event-log">No events yet.</pre></div>
+    </section>
+
+    <section id="settings" class="tab-panel">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">routing</p>
+          <h2>Settings</h2>
+          <p>Set each controller channel’s incoming port and matching camera IP.</p>
+        </div>
+        <div class="actions">
+          <button id="btn-export">Export Config</button>
+          <button id="btn-import">Import Config</button>
+          <input type="file" id="import-file" accept=".json" hidden>
+        </div>
+      </div>
+      <div class="settings-card">
+        <div class="field-row">
+          <label>Bridge IP</label>
+          <select id="bridge-ip-select"><option value="0.0.0.0">0.0.0.0 (all interfaces)</option></select>
+          <input type="text" id="bridge-ip-manual" placeholder="or type IP">
+          <button id="btn-save-bridge-ip">Save Bridge IP</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table id="routes-table">
+          <thead>
+            <tr><th>#</th><th>On</th><th>Label</th><th>Incoming</th><th>Controller Profile</th><th>Camera Profile</th><th>Camera IP</th><th>Port</th><th>Status</th><th></th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer>MeowCam Bridge v0.1 — local onsite PTZ bridge · made by the meow team</footer>
+</div>
 <script src="/static/app.js"></script>
 </body>
 </html>

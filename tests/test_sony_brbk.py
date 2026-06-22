@@ -132,14 +132,14 @@ class TestSonyBRCH900OSDPayloads:
         assert "menu_back" in p.OSD_PAYLOADS
 
     def test_menu_enter_is_sony_osd_select(self):
-        """menu_enter must be 01 06 06 05 FF — the Sony OSD Enter/Select command."""
+        """menu_enter must be 01 7E 01 02 00 01 FF — the BRC-H900 direct OSD Enter command."""
         p = SonyBRCH900BRBKIP10()
-        assert p.OSD_PAYLOADS["menu_enter"] == bytes([0x01, 0x06, 0x06, 0x05, 0xFF])
+        assert p.OSD_PAYLOADS["menu_enter"] == bytes([0x01, 0x7E, 0x01, 0x02, 0x00, 0x01, 0xFF])
 
     def test_menu_back_is_sony_osd_return(self):
-        """menu_back must be 01 06 06 04 FF — the Sony OSD Back/Return command."""
+        """menu_back must be 01 7E 01 02 00 02 FF — the BRC-H900 direct OSD Back command."""
         p = SonyBRCH900BRBKIP10()
-        assert p.OSD_PAYLOADS["menu_back"] == bytes([0x01, 0x06, 0x06, 0x04, 0xFF])
+        assert p.OSD_PAYLOADS["menu_back"] == bytes([0x01, 0x7E, 0x01, 0x02, 0x00, 0x02, 0xFF])
 
     def test_menu_open_is_sony_osd_on(self):
         """menu_open must be 01 06 06 02 FF — the Sony OSD On command."""
@@ -151,8 +151,10 @@ class TestSonyBRCH900OSDPayloads:
         p = SonyBRCH900BRBKIP10()
         assert p.OSD_PAYLOADS["menu_close"] == bytes([0x01, 0x06, 0x06, 0x03, 0xFF])
 
-    def test_osd_payloads_not_legacy_7e(self):
-        """Ensure no OSD command uses the legacy 01 7E 01 02 ... payloads."""
+    def test_menu_open_close_are_not_legacy_7e(self):
+        """Menu open/close use Sony menu on/off; Enter/Back intentionally use BRC-H900 direct menu payloads."""
         p = SonyBRCH900BRBKIP10()
-        for cmd_name, payload in p.OSD_PAYLOADS.items():
-            assert not payload.startswith(b"\x01\x7e"), f"{cmd_name} still uses legacy 7E payload"
+        assert not p.OSD_PAYLOADS["menu_open"].startswith(b"\x01\x7e")
+        assert not p.OSD_PAYLOADS["menu_close"].startswith(b"\x01\x7e")
+        assert p.OSD_PAYLOADS["menu_enter"].startswith(b"\x01\x7e")
+        assert p.OSD_PAYLOADS["menu_back"].startswith(b"\x01\x7e")

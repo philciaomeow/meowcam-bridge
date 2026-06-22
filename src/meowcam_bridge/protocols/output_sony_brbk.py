@@ -52,15 +52,15 @@ class SonyBRCH900BRBKIP10(OutputProfile):
     # These match the Sony VISCA OSD commands:
     #   menu_open  = 01 06 06 02 FF  (OSD on)
     #   menu_close = 01 06 06 03 FF  (OSD off)
-    #   menu_enter = 01 06 06 05 FF  (OSD enter / select)
-    #   menu_back  = 01 06 06 04 FF  (OSD back / return)
+    #   menu_enter = 01 7E 01 02 00 01 FF  (BRC-H900 direct menu enter)
+    #   menu_back  = 01 7E 01 02 00 02 FF  (BRC-H900 direct menu back)
     # Other cameras with different OSD semantics can override these in their
     # own OutputProfile subclass.
     OSD_PAYLOADS: dict[str, bytes] = {
         "menu_open":  bytes([0x01, 0x06, 0x06, 0x02, 0xFF]),
         "menu_close": bytes([0x01, 0x06, 0x06, 0x03, 0xFF]),
-        "menu_enter": bytes([0x01, 0x06, 0x06, 0x05, 0xFF]),
-        "menu_back":  bytes([0x01, 0x06, 0x06, 0x04, 0xFF]),
+        "menu_enter": bytes([0x01, 0x7E, 0x01, 0x02, 0x00, 0x01, 0xFF]),
+        "menu_back":  bytes([0x01, 0x7E, 0x01, 0x02, 0x00, 0x02, 0xFF]),
     }
 
     def _next_seq(self, route_state: dict[str, Any]) -> int:

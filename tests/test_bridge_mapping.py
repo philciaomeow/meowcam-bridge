@@ -97,8 +97,8 @@ class TestBridgeCoreOSDCommands:
     The Sony BRC-H900 VISCA OSD commands are:
       menu_open  = 01 06 06 02 FF
       menu_close = 01 06 06 03 FF
-      menu_enter = 01 06 06 05 FF
-      menu_back  = 01 06 06 04 FF
+      menu_enter = 01 7E 01 02 00 01 FF
+      menu_back  = 01 7E 01 02 00 02 FF
     """
 
     @pytest.mark.asyncio
@@ -119,27 +119,23 @@ class TestBridgeCoreOSDCommands:
 
     @pytest.mark.asyncio
     async def test_menu_enter_payload(self):
-        """menu_enter must be 01 06 06 05 FF, NOT the old 01 7E 01 02 00 01 FF."""
+        """menu_enter uses the BRC-H900 direct OSD Enter payload confirmed by live testing."""
         cfg = BridgeConfig(routes=[CameraRoute(enabled=True, label="Test")])
         core = BridgeCore(cfg)
         result = await core.send_command(0, "menu_enter", {})
         assert result.ok is True
         detail = result.detail.replace(" ", "").lower()
-        assert "01060605ff" in detail
-        # Explicitly verify old wrong payload is NOT present
-        assert "017e0102000 1ff" not in detail
-        assert "017e01020001ff" not in detail
+        assert "017e01020001ff" in detail
 
     @pytest.mark.asyncio
     async def test_menu_back_payload(self):
-        """menu_back must be 01 06 06 04 FF, NOT the old 01 7E 01 02 00 02 FF."""
+        """menu_back uses the BRC-H900 direct OSD Back payload confirmed by live testing."""
         cfg = BridgeConfig(routes=[CameraRoute(enabled=True, label="Test")])
         core = BridgeCore(cfg)
         result = await core.send_command(0, "menu_back", {})
         assert result.ok is True
         detail = result.detail.replace(" ", "").lower()
-        assert "01060604ff" in detail
-        assert "017e01020002ff" not in detail
+        assert "017e01020002ff" in detail
 
 
 class TestBridgeCoreSequenceMapping:
