@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import io
 import pathlib
 import socket
 import sys
@@ -15,26 +16,37 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 
 from .config import BridgeConfig, CameraRoute, MAX_ROUTES
 from .bridge import BridgeCore, CommandResult
+from .video_manager import VideoSourceManager
+from .video import mjpeg_generator, snapshot_response
+from .atem import ATEMManager, ATEMConnectionError
 
 # In-memory config and bridge core (replaced on reload)
 _bridge: BridgeCore | None = None
 _config_path: pathlib.Path | None = None
+_video_manager: VideoSourceManager | None = None
+_atem_manager: ATEMManager | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Start/stop the bridge UDP listeners alongside the web UI."""
-    global _bridge
+    global _bridge, _video_manager
     if _bridge is not None:
         await _bridge.start()
         print(f"[MeowCam] Bridge started — {_bridge.config}")
+    if _video_manager is not None:
+        _video_manager.start()
+        print("[MeowCam] Video manager started")
     yield
+    if _video_manager is not None:
+        _video_manager.stop()
+        print("[MeowCam] Video manager stopped")
     if _bridge is not None:
         await _bridge.stop()
         print("[MeowCam] Bridge stopped.")
@@ -57,6 +69,8 @@ if _web_dir.exists():
 def _save_config() -> None:
     if _bridge is not None and _config_path is not None:
         _bridge.config.save(_config_path)
+    if _video_manager is not None:
+        _video_manager.on_config_changed()
 
 
 # ---------------------------------------------------------------------------
@@ -70,6 +84,53 @@ async def root() -> str:
     if html_path.exists():
         return html_path.read_text(encoding="utf-8")
     return "<html><body><h1>MeowCam Bridge</h1><p>UI not found.</p></body></html>"
+
+
+# ---------------------------------------------------------------------------
+# Video streaming
+# ---------------------------------------------------------------------------
+
+@app.get("/api/video/feed/{route_index}")
+async def video_feed(
+    route_index: int,
+    fps: int | None = None,
+    quality: int = 60,
+    width: int = 480,
+) -> StreamingResponse:
+    """MJPEG stream for a camera route."""
+    if _video_manager is None:
+        raise HTTPException(status_code=503, detail="video manager not initialised")
+    source = _video_manager.get_source(route_index)
+    if source is None:
+        raise HTTPException(status_code=404, detail="no video source for this route")
+
+    # Fall back to route config for fps if not provided
+    target_fps = fps
+    if target_fps is None and _bridge is not None and 0 <= route_index < len(_bridge.config.routes):
+        target_fps = _bridge.config.routes[route_index].video.frame_rate
+    if target_fps is None or target_fps <= 0:
+        target_fps = 8
+
+    return StreamingResponse(
+        mjpeg_generator(source, fps=target_fps, quality=quality, width=width),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+    )
+
+
+@app.get("/api/video/snapshot/{route_index}")
+async def video_snapshot(
+    route_index: int,
+    quality: int = 60,
+    width: int = 480,
+) -> StreamingResponse:
+    """Single JPEG snapshot for a camera route."""
+    if _video_manager is None:
+        raise HTTPException(status_code=503, detail="video manager not initialised")
+    source = _video_manager.get_source(route_index)
+    if source is None:
+        raise HTTPException(status_code=404, detail="no video source for this route")
+    jpeg, media_type = snapshot_response(source, quality=quality, width=width)
+    return StreamingResponse(io.BytesIO(jpeg), media_type=media_type)
 
 
 # ---------------------------------------------------------------------------
@@ -301,6 +362,152 @@ async def bridge_status() -> dict:
 
 
 # ---------------------------------------------------------------------------
+# ATEM switcher — SuperSource, tally, inputs
+# ---------------------------------------------------------------------------
+
+def _get_atem() -> ATEMManager:
+    """Return the active ATEM manager or raise 503."""
+    if _atem_manager is None or not _atem_manager.connected:
+        raise HTTPException(status_code=503, detail="ATEM not connected")
+    return _atem_manager
+
+
+@app.get("/api/atem/status")
+async def atem_status() -> dict:
+    """Return ATEM connection status."""
+    if _atem_manager is None:
+        if _bridge is not None:
+            return {"connected": False, "enabled": _bridge.config.atem.enabled, "atem_ip": _bridge.config.atem.atem_ip}
+        return {"connected": False, "enabled": False}
+    return _atem_manager.status()
+
+
+@app.post("/api/atem/connect")
+async def atem_connect() -> dict:
+    """Connect to the ATEM switcher using the configured IP."""
+    global _atem_manager
+    if _bridge is None:
+        raise HTTPException(status_code=503, detail="bridge not initialised")
+    if not _bridge.config.atem.enabled:
+        raise HTTPException(status_code=400, detail="ATEM is disabled in config")
+    if _atem_manager is not None and _atem_manager.connected:
+        return {"connected": True, "atem_ip": _bridge.config.atem.atem_ip}
+    try:
+        _atem_manager = ATEMManager(_bridge.config.atem)
+        _atem_manager.connect()
+    except ATEMConnectionError as exc:
+        raise HTTPException(status_code=502, detail=f"ATEM connection failed: {exc}")
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"ATEM connection error: {exc}")
+    return {"connected": True, "atem_ip": _bridge.config.atem.atem_ip}
+
+
+@app.post("/api/atem/disconnect")
+async def atem_disconnect() -> dict:
+    """Disconnect from the ATEM switcher."""
+    global _atem_manager
+    if _atem_manager is not None:
+        _atem_manager.disconnect()
+        _atem_manager = None
+    return {"connected": False}
+
+
+@app.get("/api/atem/supersource")
+async def get_supersource() -> dict:
+    """Read current SuperSource box configuration."""
+    manager = _get_atem()
+    try:
+        return manager.get_supersource_state()
+    except ATEMConnectionError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+
+@app.put("/api/atem/supersource")
+async def put_supersource(payload: dict) -> dict:
+    """Configure SuperSource as a 2x2 grid.
+
+    Optional payload:
+      - "input_mapping": [int, int, int, int]  (4 ATEM SDI input numbers 1-20)
+      - "aux_output": int  (1-6, overrides config)
+    """
+    manager = _get_atem()
+    input_mapping = payload.get("input_mapping")
+    aux_output = payload.get("aux_output")
+    try:
+        result = manager.configure_supersource_2x2(input_mapping)
+        if aux_output is not None:
+            manager.route_supersource_to_aux(aux_output)
+            result["aux_output"] = aux_output
+        else:
+            result["aux_output"] = manager._config.supersource_aux_output
+        return result
+    except ATEMConnectionError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@app.post("/api/atem/supersource/box/{box_index}/toggle")
+async def toggle_box(box_index: int, payload: dict | None = None) -> dict:
+    """Toggle a SuperSource box on/off.
+
+    Optional payload:
+      - "enabled": bool  (explicit on/off; if omitted, toggles current state)
+    """
+    manager = _get_atem()
+    enabled = (payload or {}).get("enabled")
+    try:
+        return manager.toggle_box(box_index, enabled)
+    except ATEMConnectionError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@app.get("/api/atem/tally")
+async def get_tally() -> dict:
+    """Read current PGM/PVW source for M/E row 0."""
+    manager = _get_atem()
+    try:
+        return manager.get_tally(0)
+    except ATEMConnectionError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+
+@app.get("/api/atem/inputs")
+async def get_atem_inputs() -> list[dict]:
+    """Read input labels for all 20 SDI inputs."""
+    manager = _get_atem()
+    try:
+        return manager.get_inputs()
+    except ATEMConnectionError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+
+@app.get("/api/atem/config")
+async def get_atem_config() -> dict:
+    """Return the ATEM configuration section."""
+    if _bridge is None:
+        raise HTTPException(status_code=503, detail="bridge not initialised")
+    return _bridge.config.atem.model_dump()
+
+
+@app.put("/api/atem/config")
+async def put_atem_config(payload: dict) -> dict:
+    """Update the ATEM configuration section."""
+    if _bridge is None:
+        raise HTTPException(status_code=503, detail="bridge not initialised")
+    from .config import AtemConfig
+    try:
+        updated = AtemConfig.model_validate(payload)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"invalid ATEM config: {exc}")
+    _bridge.config.atem = updated
+    _save_config()
+    return _bridge.config.atem.model_dump()
+
+
+# ---------------------------------------------------------------------------
 # Diagnostics
 # ---------------------------------------------------------------------------
 
@@ -332,7 +539,7 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=8080, help="Web UI port")
     args = parser.parse_args()
 
-    global _config_path, _bridge
+    global _config_path, _bridge, _video_manager
     _config_path = pathlib.Path(args.config)
     if _config_path.exists():
         config = BridgeConfig.load(_config_path)
@@ -341,6 +548,7 @@ def main() -> int:
         config.save(_config_path)
 
     _bridge = BridgeCore(config)
+    _video_manager = VideoSourceManager(config)
 
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")
     return 0

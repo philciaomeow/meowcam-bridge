@@ -17,6 +17,28 @@ MAX_ROUTES: int = 8
 DEFAULT_CONTROLLER_PORT: int = 52381
 
 
+class CameraVideo(BaseModel):
+    """Video capture settings for a camera route."""
+
+    enabled: bool = False
+    source_type: Literal["none", "ndi", "usb", "testpattern"] = "none"
+    ndi_source_name: str = ""
+    usb_device_index: int = 0
+    resolution: str = "640x360"
+    frame_rate: int = 8
+    jpeg_quality: int = 60
+
+    @field_validator("resolution")
+    @classmethod
+    def _parse_resolution(cls, v: str) -> str:
+        if "x" not in v:
+            raise ValueError("resolution must be in WxH format (e.g. 640x360)")
+        w, h = v.split("x")
+        if not (w.isdigit() and h.isdigit()):
+            raise ValueError("resolution must be in WxH format (e.g. 640x360)")
+        return v
+
+
 class CameraRoute(BaseModel):
     """A single controller-to-camera route."""
 
@@ -33,10 +55,39 @@ class CameraRoute(BaseModel):
     # Preset labels: index 0 = preset 1, etc.
     preset_labels: list[str] = Field(default_factory=lambda: [f"Preset {i}" for i in range(1, 17)])
 
+    # Video capture settings
+    video: CameraVideo = Field(default_factory=CameraVideo)
+
     @field_validator("preset_labels")
     @classmethod
     def _limit_presets(cls, v: list[str]) -> list[str]:
         return v[:16]
+
+
+class AtemConfig(BaseModel):
+    """ATEM switcher connection and SuperSource configuration.
+
+    input_mapping maps route_index (0-7) to ATEM SDI input number (1-20).
+    Only the first 4 entries are used for SuperSource boxes; the remaining
+    entries are reserved for future use (e.g. PGM/PVW source mapping).
+    """
+
+    enabled: bool = False
+    atem_ip: str = "192.168.1.240"
+    supersource_aux_output: int = Field(default=1, ge=1, le=6)
+    input_mapping: list[int] = Field(
+        default_factory=lambda: [1, 2, 3, 4, 5, 6, 7, 8]
+    )
+
+    @field_validator("input_mapping")
+    @classmethod
+    def _validate_input_mapping(cls, v: list[int]) -> list[int]:
+        if len(v) != MAX_ROUTES:
+            raise ValueError(f"input_mapping must have exactly {MAX_ROUTES} entries")
+        for inp in v:
+            if not (1 <= inp <= 20):
+                raise ValueError(f"ATEM SDI input must be 1-20, got {inp}")
+        return v
 
 
 class BridgeConfig(BaseModel):
@@ -46,6 +97,7 @@ class BridgeConfig(BaseModel):
     bridge_ui_port: int = Field(default=8080, ge=1, le=65535)
     controller_bind_ip: str = "0.0.0.0"
     routes: list[CameraRoute] = Field(default_factory=list)
+    atem: AtemConfig = Field(default_factory=AtemConfig)
 
     @field_validator("routes")
     @classmethod
