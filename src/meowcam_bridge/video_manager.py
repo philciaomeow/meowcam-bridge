@@ -37,9 +37,14 @@ class VideoSourceManager:
     # ------------------------------------------------------------------
 
     def start(self) -> None:
-        """Start video sources for all enabled routes."""
+        """Start video sources for all enabled routes.
+
+        Only test patterns are started eagerly — NDI and USB sources are
+        created lazily on first access to avoid blocking the web server
+        startup if a source is unreachable.
+        """
         for idx, route in self._config.enabled_routes():
-            if route.video.enabled:
+            if route.video.enabled and route.video.source_type == "testpattern":
                 self._ensure_source(idx)
 
     def stop(self) -> None:
@@ -81,6 +86,16 @@ class VideoSourceManager:
             source.start()
         except Exception as exc:
             logger.error("Failed to start video source for route %s: %s", route.label, exc)
+            # Fall back to test pattern if NDI/USB fails
+            if video_cfg.source_type in ("ndi", "usb"):
+                logger.warning("Falling back to test pattern for %s", route.label)
+                fallback = TestPatternSource(route_label=route.label, resolution=video_cfg.resolution)
+                try:
+                    fallback.start()
+                    self._sources[route_index] = fallback
+                    return fallback
+                except Exception:
+                    pass
             return None
         self._sources[route_index] = source
         return source

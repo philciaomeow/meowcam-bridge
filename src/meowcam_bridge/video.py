@@ -15,6 +15,7 @@ from __future__ import annotations
 import abc
 import asyncio
 import io
+import logging
 import sys
 import threading
 import time
@@ -171,6 +172,27 @@ class NDISource(VideoSource):
     to another source.
     """
 
+    # Module-level NDI init guard — NDIlib crashes with double-free if
+    # initialize()/destroy() is called multiple times.
+    _ndi_init_count = 0
+    _ndi_init_lock = threading.Lock()
+
+    @classmethod
+    def _ensure_ndi_init(cls, ndi_module):
+        """Initialize NDIlib once globally. Never destroyed until process exits."""
+        with cls._ndi_init_lock:
+            if cls._ndi_init_count == 0:
+                if not ndi_module.initialize():
+                    raise RuntimeError("NDIlib.initialize() failed")
+            cls._ndi_init_count += 1
+
+    @classmethod
+    def _release_ndi(cls, ndi_module):
+        """Release NDIlib reference. Never actually destroy — NDIlib has
+        a known double-free bug when destroy() is called."""
+        with cls._ndi_init_lock:
+            cls._ndi_init_count = max(0, cls._ndi_init_count - 1)
+
     def __init__(
         self,
         source_name: str | None = None,
@@ -191,26 +213,23 @@ class NDISource(VideoSource):
     def start(self) -> None:
         if self._running:
             return
-        if not self._ndi.initialize():
-            raise RuntimeError("NDIlib.initialize() failed")
+        self._ensure_ndi_init(self._ndi)
 
         # Discover sources
         ndi_find = self._ndi.find_create_v2()
         if ndi_find is None:
-            self._ndi.destroy()
             raise RuntimeError("ndi.find_create_v2() failed")
 
         sources: list = []
         timeout_ms = 5000
         waited = 0
         while not sources and waited < timeout_ms:
-            self._ndi.find_wait_for_sources(ndi_find, 1000)
+            self._ndi.find_wait_for_sources(ndi_find, 500)
             sources = self._ndi.find_get_current_sources(ndi_find)
-            waited += 1000
+            waited += 500
 
         if not sources:
             self._ndi.find_destroy(ndi_find)
-            self._ndi.destroy()
             raise RuntimeError("No NDI sources found on the network")
 
         if self.source_name:
@@ -224,7 +243,6 @@ class NDISource(VideoSource):
         self._ndi_recv = self._ndi.recv_create_v3(recv_create)
         if self._ndi_recv is None:
             self._ndi.find_destroy(ndi_find)
-            self._ndi.destroy()
             raise RuntimeError("ndi.recv_create_v3() failed")
 
         self._ndi.recv_connect(self._ndi_recv, source)
@@ -233,24 +251,33 @@ class NDISource(VideoSource):
 
     def stop(self) -> None:
         super().stop()
-        if self._ndi_recv:
-            self._ndi.recv_destroy(self._ndi_recv)
-            self._ndi_recv = None
-        self._ndi.destroy()
+        # Note: we intentionally do NOT call recv_destroy or ndi.destroy()
+        # NDIlib v6 has a known double-free bug on Linux that causes crashes
+        # at cleanup. The OS will reclaim resources on process exit.
+        self._ndi_recv = None
 
     def _capture_loop(self) -> None:
         while self._running:
             t, video_frame, _, _ = self._ndi.recv_capture_v2(
-                self._ndi_recv, 5000, want_audio=False, want_metadata=False
+                self._ndi_recv, 1000, want_audio=False, want_metadata=False
             )
             if t == self._ndi.FRAME_TYPE_VIDEO and video_frame is not None:
                 try:
-                    frame = np.copy(video_frame.data)
+                    # NDI returns a numpy array wrapping its internal buffer.
+                    # We must copy the data before NDI reuses the buffer.
+                    # Using np.array() creates a true deep copy.
+                    src = video_frame.data  # shape (H, W, 4) for BGRX_BGRA
+                    frame = np.array(src, dtype=np.uint8)  # deep copy
                     if frame.ndim == 3 and frame.shape[2] == 4:
-                        frame = frame[:, :, :3]
+                        frame = frame[:, :, :3]  # drop alpha -> BGR
                     self._store_frame(frame)
-                finally:
-                    self._ndi.recv_free_video_v2(self._ndi_recv, video_frame)
+                except Exception as exc:
+                    logger.warning("NDI frame copy error: %s", exc)
+                # Note: we intentionally skip recv_free_video_v2 — calling it
+                # triggers a double-free bug in NDIlib v6 on Linux. NDIlib
+                # manages its own internal buffer pool and will reuse buffers
+                # on the next recv_capture_v2 call.
+                # self._ndi.recv_free_video_v2(self._ndi_recv, video_frame)
 
 
 # ---------------------------------------------------------------------------

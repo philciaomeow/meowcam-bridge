@@ -23,7 +23,7 @@ import uvicorn
 from .config import BridgeConfig, CameraRoute, MAX_ROUTES
 from .bridge import BridgeCore, CommandResult
 from .video_manager import VideoSourceManager
-from .video import mjpeg_generator, snapshot_response
+from .video import mjpeg_generator, snapshot_response, NDISource
 from .atem import ATEMManager, ATEMConnectionError
 
 # In-memory config and bridge core (replaced on reload)
@@ -296,26 +296,20 @@ async def post_command(payload: dict) -> dict:
 
 @app.get("/api/ndi/sources")
 async def ndi_sources() -> dict:
-    """Discover available NDI sources on the network.
-
-    Returns {sources: [{name: str, url: str}], available: bool}.
-    If NDI is not installed, returns available=False with an empty list.
-    """
+    """Discover available NDI sources on the network."""
     try:
         import NDIlib as _ndi  # type: ignore[import-untyped]
     except ImportError:
         return {"sources": [], "available": False, "error": "ndi-python not installed"}
 
     try:
-        if not _ndi.initialize():
-            return {"sources": [], "available": False, "error": "NDIlib.initialize() failed"}
+        # Use ref-counting — never call destroy (NDIlib double-free bug)
+        NDISource._ensure_ndi_init(_ndi)
 
         ndi_find = _ndi.find_create_v2()
         if ndi_find is None:
-            _ndi.destroy()
             return {"sources": [], "available": False, "error": "find_create_v2() failed"}
 
-        # Wait for sources to appear
         sources = []
         for _ in range(3):
             _ndi.find_wait_for_sources(ndi_find, 1000)
@@ -329,7 +323,7 @@ async def ndi_sources() -> dict:
             })
 
         _ndi.find_destroy(ndi_find)
-        _ndi.destroy()
+        # Do NOT call _ndi.destroy() — known NDIlib double-free bug
         return {"sources": result, "available": True}
     except Exception as exc:
         return {"sources": [], "available": False, "error": str(exc)}
