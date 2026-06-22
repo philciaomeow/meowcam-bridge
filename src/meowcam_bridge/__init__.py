@@ -4,4 +4,4 @@ Supports up to 8 camera routes with profile-based input (controller) and output 
 protocols. Designed for local, no-internet operation with an embedded web UI.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"

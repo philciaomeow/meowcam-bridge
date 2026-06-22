@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "meowcam-bridge"
-version = "0.1.0"
+version = "0.1.1"
 description = "Standalone onsite PTZ controller-to-camera bridge"
 readme = "README.md"
 requires-python = ">=3.11"
