@@ -490,12 +490,15 @@
       const speedBtn = event.target.closest('.speed-mode-btn');
       if (!speedBtn) return;
       const routeIndex = Number($('#manual-camera-select')?.value || 0);
-      setCameraSpeed(routeIndex, speedBtn.dataset.speed, false).catch((err) => alert(`Speed change failed: ${err.message}`));
+      // Manual speed buttons are now immediate + persistent: site operators
+      // expect Slow/Medium/Fast to stick for this camera and to affect preset
+      // travel as well as manual pan/tilt.
+      setCameraSpeed(routeIndex, speedBtn.dataset.speed, true).catch((err) => alert(`Speed change failed: ${err.message}`));
     });
     $('#btn-save-speed')?.addEventListener('click', () => {
       const routeIndex = Number($('#manual-camera-select')?.value || 0);
-      const mode = speedModeFor(routeIndex);
-      setCameraSpeed(routeIndex, mode, true).catch((err) => alert(`Speed save failed: ${err.message}`));
+      const activeMode = $('.speed-mode-btn.active')?.dataset.speed || speedModeFor(routeIndex);
+      setCameraSpeed(routeIndex, activeMode, true).catch((err) => alert(`Speed save failed: ${err.message}`));
     });
     $('#manual-camera-select')?.addEventListener('change', () => {
       const routeIndex = Number($('#manual-camera-select')?.value || 0);

@@ -66,6 +66,15 @@ class TestBridgeCoreCommands:
         assert result.ok is True
         assert "3f 01 03" in result.detail.lower() or "3f0103" in result.detail.lower()
 
+    def test_preset_speed_payload(self):
+        payload = BridgeCore._build_preset_speed_payload(preset=5, speed=18)
+        assert payload == bytes.fromhex("017e010b0412ff")
+
+    def test_preset_recall_payload_detection(self):
+        assert BridgeCore._preset_number_from_recall_payload(bytes.fromhex("8101043f0205ff")) == 5
+        assert BridgeCore._preset_number_from_recall_payload(bytes.fromhex("01043f0205ff")) == 5
+        assert BridgeCore._preset_number_from_recall_payload(bytes.fromhex("01043f0105ff")) is None
+
     @pytest.mark.asyncio
     async def test_pan_tilt_stop_payload(self):
         cfg = BridgeConfig(routes=[CameraRoute(enabled=True, label="Test")])

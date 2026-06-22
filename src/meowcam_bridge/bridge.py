@@ -103,6 +103,10 @@ class BridgeCore:
         }
         # Per-route controller session tracking: maps camera-side seq -> controller-side seq + return addr
         self._pending_replies: dict[int, dict[int, tuple[int, tuple[str, int], str]]] = {}
+        # Per-route camera-side sequences generated internally by the bridge
+        # (for example preset-speed helper commands). Replies for these should
+        # be consumed by the bridge, not forwarded to the hardware controller.
+        self._internal_replies: dict[int, set[int]] = {}
         # Async resources
         self._listeners: list[_UDPEndpoint] = []
         self._listeners_by_route: dict[int, _UDPEndpoint] = {}
@@ -155,8 +159,12 @@ class BridgeCore:
             "reply_count": 0,
             "error_count": 0,
         }
-        self._route_states.clear()
+        # Do not clear route_state/sony_seq here while the bridge is live.
+        # The BRBK-IP10 keeps its own sequence counter; clearing only our side
+        # without also sending a camera reset causes sequence-abnormality errors
+        # on the next command. A bridge restart performs a real camera reset.
         self._pending_replies.clear()
+        self._internal_replies.clear()
 
     def _log_event(self, message: str) -> None:
         """Append an event to the diagnostics log (capped at 200 lines)."""
@@ -423,6 +431,9 @@ class BridgeCore:
             return
 
         route_state = self.route_state(idx)
+        await self._inject_preset_speed_if_needed(
+            idx, route, output_prof, decoded.get("payload", b""), route_state, sock
+        )
         camera_packet = output_prof.encode(decoded, route_state)
         if camera_packet is None:
             self._diag["error_count"] += 1
@@ -486,10 +497,24 @@ class BridgeCore:
             self._pending_replies.get(idx, {}).clear()
             return
 
-        # Find the pending reply mapping
-        # Sony cameras send ACK then Completion with same seq.
+        # Find the pending reply mapping.
+        # Sony cameras send ACK then Completion with same seq. Internal helper
+        # commands (e.g. preset-speed injection) should be consumed here rather
+        # than forwarded to the hardware controller.
         pending = self._pending_replies.get(idx, {})
         is_ack = len(payload) >= 2 and payload[1] == 0x41
+        is_completion_or_error = len(payload) >= 2 and (payload[1] == 0x51 or (payload[1] & 0x60) == 0x60)
+        internal = self._internal_replies.get(idx, set())
+        if cam_seq in internal:
+            if is_completion_or_error:
+                internal.discard(cam_seq)
+            self._diag["last_camera_reply"] = {
+                "route_index": idx,
+                "payload_hex": payload.hex(),
+                "camera_seq": cam_seq,
+                "internal": True,
+            }
+            return
         if cam_seq is not None:
             mapped = pending.get(cam_seq) if is_ack else pending.pop(cam_seq, None)
         else:
@@ -556,6 +581,10 @@ class BridgeCore:
                 continue
 
             route_state = self.route_state(idx)
+            camera_sock = self._camera_sockets.get(idx)
+            await self._inject_preset_speed_if_needed(
+                idx, route, output_prof, decoded.get("payload", b""), route_state, camera_sock
+            )
             camera_packet = output_prof.encode(decoded, route_state)
             if camera_packet is None:
                 self._diag["error_count"] += 1
@@ -674,9 +703,23 @@ class BridgeCore:
             self._pending_replies.get(idx, {}).clear()
             return
 
-        # ACK vs Completion handling
+        # ACK vs Completion handling. Internal helper commands (e.g.
+        # preset-speed injection) should be consumed by the bridge and not
+        # forwarded to the hardware controller.
         pending = self._pending_replies.get(idx, {})
         is_ack = len(payload) >= 2 and payload[1] == 0x41
+        is_completion_or_error = len(payload) >= 2 and (payload[1] == 0x51 or (payload[1] & 0x60) == 0x60)
+        internal = self._internal_replies.get(idx, set())
+        if cam_seq in internal:
+            if is_completion_or_error:
+                internal.discard(cam_seq)
+            self._diag["last_camera_reply"] = {
+                "route_index": idx,
+                "payload_hex": payload.hex(),
+                "camera_seq": cam_seq,
+                "internal": True,
+            }
+            return
         if cam_seq is not None:
             mapped = pending.get(cam_seq) if is_ack else pending.pop(cam_seq, None)
         else:
@@ -732,6 +775,100 @@ class BridgeCore:
         return None
 
     # ------------------------------------------------------------------
+    # Preset speed helpers
+    # ------------------------------------------------------------------
+
+    SPEED_TO_PRESET_DRIVE: dict[str, int] = {
+        "slow": 3,
+        "medium": 9,
+        "fast": 18,
+    }
+
+    @classmethod
+    def _preset_drive_speed_for_mode(cls, mode: str) -> int:
+        return cls.SPEED_TO_PRESET_DRIVE.get(mode, cls.SPEED_TO_PRESET_DRIVE["medium"])
+
+    @staticmethod
+    def _preset_number_from_recall_payload(payload: bytes) -> int | None:
+        """Return 1-based preset number when payload is a VISCA preset recall."""
+        if not payload:
+            return None
+        body = payload[1:] if 0x81 <= payload[0] <= 0x88 else payload
+        if len(body) >= 6 and body[:4] == bytes([0x01, 0x04, 0x3F, 0x02]) and body[-1] == 0xFF:
+            preset = int(body[4])
+            if 1 <= preset <= 16:
+                return preset
+        return None
+
+    @staticmethod
+    def _build_preset_speed_payload(preset: int, speed: int) -> bytes | None:
+        """Build BRC-H900 preset-drive-speed payload.
+
+        Sony's BRC-H900 command list exposes PRESET DRIVE SPEED as:
+        8x 01 7E 01 0B pp qq FF
+        where pp = preset number - 1 and qq = direction speed (01-18).
+        The output profile prepends/forces the 0x81 address byte, so this helper
+        returns the address-less body.
+        """
+        if not (1 <= preset <= 16):
+            return None
+        speed = max(1, min(18, int(speed)))
+        return bytes([0x01, 0x7E, 0x01, 0x0B, preset - 1, speed, 0xFF])
+
+    async def _send_internal_payload(
+        self,
+        idx: int,
+        route: CameraRoute,
+        output_prof: OutputProfile,
+        route_state: dict[str, Any],
+        sock: _UDPEndpoint,
+        payload: bytes,
+        reason: str,
+    ) -> None:
+        cmd = {
+            "payload": payload,
+            "payload_type": 0x0100,
+            "seq": 0,
+            "framing": "visca_ip",
+        }
+        packet = output_prof.encode(cmd, route_state)
+        if packet is None:
+            return
+        seq = self._extract_seq(packet)
+        if seq is not None:
+            self._internal_replies.setdefault(idx, set()).add(seq)
+        self._log_event(f"[{route.label}] internal {reason}: {payload.hex()}")
+        sock.send(packet, (route.camera_ip, route.camera_port))
+
+    async def _inject_preset_speed_if_needed(
+        self,
+        idx: int,
+        route: CameraRoute,
+        output_prof: OutputProfile,
+        controller_payload: bytes,
+        route_state: dict[str, Any],
+        sock: _UDPEndpoint | None,
+    ) -> None:
+        """Inject BRC-H900 preset-drive-speed before a preset recall.
+
+        This lets both the web UI and the hardware controller use the route's
+        stored Slow/Medium/Fast setting for preset travel, even though standard
+        VISCA preset recall itself has no speed byte.
+        """
+        if sock is None:
+            return
+        preset = self._preset_number_from_recall_payload(controller_payload)
+        if preset is None:
+            return
+        speed = self._preset_drive_speed_for_mode(route.movement_speed)
+        payload = self._build_preset_speed_payload(preset, speed)
+        if payload is None:
+            return
+        await self._send_internal_payload(idx, route, output_prof, route_state, sock, payload, f"preset {preset} speed {speed}")
+        # Give the camera a beat to accept the setting before the actual recall.
+        await asyncio.sleep(0.08)
+
+    # ------------------------------------------------------------------
     # Command dispatch (manual control via API/UI)
     # ------------------------------------------------------------------
 
@@ -771,6 +908,10 @@ class BridgeCore:
             if profiles is not None:
                 input_prof, output_prof_live = profiles
                 route_state = self.route_state(route_index)
+                if command == "preset_recall":
+                    await self._inject_preset_speed_if_needed(
+                        route_index, route, output_prof_live, payload, route_state, self._camera_sockets.get(route_index)
+                    )
                 cmd = {
                     "payload": payload,
                     "payload_type": 0x0100,  # VISCA_COMMAND_TYPE
