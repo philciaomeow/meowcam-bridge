@@ -38,6 +38,17 @@ class VideoSource(abc.ABC):
         self._latest_frame: np.ndarray | None = None
         self._running = False
         self._thread: threading.Thread | None = None
+        # Crop region (fractions of frame dimensions). All zeros = no crop.
+        self._crop: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
+
+    def set_crop(self, x: float, y: float, w: float, h: float) -> None:
+        """Set region-of-interest crop. Values are fractions 0.0-1.0.
+
+        x, y: top-left corner (fraction of width/height)
+        w, h: width/height of crop region (fraction of full width/height)
+        All zeros = no crop (full frame).
+        """
+        self._crop = (max(0.0, x), max(0.0, y), max(0.0, w), max(0.0, h))
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -72,7 +83,7 @@ class VideoSource(abc.ABC):
     # ------------------------------------------------------------------
 
     def get_jpeg(self, quality: int = 85, width: int | None = None) -> bytes | None:
-        """Return the latest frame as JPEG bytes, optionally resized.
+        """Return the latest frame as JPEG bytes, optionally resized and cropped.
 
         Args:
             quality: JPEG quality (0-100).
@@ -83,6 +94,17 @@ class VideoSource(abc.ABC):
             frame = self._latest_frame
         if frame is None:
             return None
+
+        # Apply crop if configured (crop_w > 0 means crop is active)
+        cx, cy, cw, ch = self._crop
+        if cw > 0 and ch > 0:
+            h, w = frame.shape[:2]
+            x0 = int(w * cx)
+            y0 = int(h * cy)
+            x1 = min(w, int(w * (cx + cw)))
+            y1 = min(h, int(h * (cy + ch)))
+            if x1 > x0 and y1 > y0:
+                frame = frame[y0:y1, x0:x1]
 
         if width is not None and width > 0 and frame.shape[1] != width:
             h, w = frame.shape[:2]

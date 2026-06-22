@@ -27,6 +27,10 @@
     resolution: '640x360',
     frame_rate: 8,
     jpeg_quality: 60,
+    crop_x: 0,
+    crop_y: 0,
+    crop_w: 0,
+    crop_h: 0,
   };
   const DEFAULT_ROUTE = {
     enabled: false,
@@ -699,6 +703,16 @@
             <div class="field"><label>Resolution</label><select data-v="resolution">${optionsHtml(resolutionList(), v.resolution || '640x360')}</select></div>
             <div class="field"><label>Frame rate</label><input data-v="frame_rate" type="number" min="1" max="30" value="${v.frame_rate ?? 8}"></div>
             <div class="field"><label>JPEG quality</label><input data-v="jpeg_quality" type="number" min="10" max="95" value="${v.jpeg_quality ?? 60}"></div>
+            <div class="field crop-field">
+              <label>Crop / Region <small>(share NDI feed, show different parts)</small></label>
+              <div class="crop-grid">
+                <div><label>X%</label><input data-v="crop_x" type="number" min="0" max="100" step="1" value="${Math.round((v.crop_x ?? 0) * 100)}"></div>
+                <div><label>Y%</label><input data-v="crop_y" type="number" min="0" max="100" step="1" value="${Math.round((v.crop_y ?? 0) * 100)}"></div>
+                <div><label>W%</label><input data-v="crop_w" type="number" min="0" max="100" step="1" value="${Math.round((v.crop_w ?? 0) * 100)}"></div>
+                <div><label>H%</label><input data-v="crop_h" type="number" min="0" max="100" step="1" value="${Math.round((v.crop_h ?? 0) * 100)}"></div>
+              </div>
+              <small class="crop-hint">All 0 = full frame. E.g. W=50 H=50 shows top-left quadrant.</small>
+            </div>
           </div>
         </div>
         <div class="route-actions">
@@ -776,6 +790,10 @@
       resolution: v('resolution')?.value || '640x360',
       frame_rate: Number(v('frame_rate')?.value || 8),
       jpeg_quality: Number(v('jpeg_quality')?.value || 60),
+      crop_x: Number(v('crop_x')?.value || 0) / 100,
+      crop_y: Number(v('crop_y')?.value || 0) / 100,
+      crop_w: Number(v('crop_w')?.value || 0) / 100,
+      crop_h: Number(v('crop_h')?.value || 0) / 100,
     };
     return {
       enabled: block.querySelector('[data-field="enabled"]')?.checked ?? false,

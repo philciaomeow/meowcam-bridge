@@ -11,7 +11,7 @@
       "output_profile": "sony_brc_h900_brbk_ip10",
       "camera_ip": "192.168.51.123",
       "camera_port": 52381,
-      "status": "ok",
+      "status": "error",
       "movement_speed": "medium",
       "preset_labels": [
         "Wide Shot",
@@ -34,7 +34,8 @@
       "video": {
         "enabled": true,
         "source_type": "ndi",
-        "ndi_source_name": "DESKTOP-4T0PTU9 (Test Pattern)",
+        "ndi_source_name": "DESKTOP-4T0PTU9 (Microsoft Basic Render Driver 1)",
+        "usb_device_index": 0,
         "resolution": "640x360",
         "frame_rate": 15,
         "jpeg_quality": 70
@@ -48,7 +49,7 @@
       "output_profile": "sony_brc_h900_brbk_ip10",
       "camera_ip": "192.168.51.124",
       "camera_port": 52381,
-      "status": "ok",
+      "status": "error",
       "movement_speed": "medium",
       "preset_labels": [
         "Stage Left",
@@ -70,7 +71,9 @@
       ],
       "video": {
         "enabled": true,
-        "source_type": "testpattern",
+        "source_type": "ndi",
+        "ndi_source_name": "DESKTOP-4T0PTU9 (Microsoft Basic Render Driver 1)",
+        "usb_device_index": 0,
         "resolution": "640x360",
         "frame_rate": 15,
         "jpeg_quality": 70
@@ -84,7 +87,7 @@
       "output_profile": "sony_brc_h900_brbk_ip10",
       "camera_ip": "192.168.51.125",
       "camera_port": 52381,
-      "status": "ok",
+      "status": "error",
       "movement_speed": "medium",
       "preset_labels": [
         "Crowd Wide",
@@ -107,6 +110,8 @@
       "video": {
         "enabled": true,
         "source_type": "testpattern",
+        "ndi_source_name": "",
+        "usb_device_index": 0,
         "resolution": "640x360",
         "frame_rate": 15,
         "jpeg_quality": 70
@@ -120,7 +125,7 @@
       "output_profile": "sony_brc_h900_brbk_ip10",
       "camera_ip": "192.168.51.126",
       "camera_port": 52381,
-      "status": "ok",
+      "status": "error",
       "movement_speed": "medium",
       "preset_labels": [
         "Back Stage",
@@ -143,6 +148,8 @@
       "video": {
         "enabled": true,
         "source_type": "testpattern",
+        "ndi_source_name": "",
+        "usb_device_index": 0,
         "resolution": "640x360",
         "frame_rate": 15,
         "jpeg_quality": 70

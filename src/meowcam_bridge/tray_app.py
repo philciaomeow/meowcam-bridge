@@ -118,6 +118,10 @@ def _start_server_thread(host: str, port: int, config_path: str) -> threading.Th
             port=port,
             log_level="info",
             access_log=False,
+            log_config=None,  # Disable uvicorn's default dictConfig —
+                              # it calls logging.Formatter(fmt).init() which
+                              # accesses sys.stderr.isatty() and crashes when
+                              # stderr is None in PyInstaller windowed mode.
         )
         server = uvicorn.Server(config_obj)
 

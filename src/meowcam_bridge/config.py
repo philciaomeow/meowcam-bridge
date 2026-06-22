@@ -27,6 +27,13 @@ class CameraVideo(BaseModel):
     resolution: str = "640x360"
     frame_rate: int = 8
     jpeg_quality: int = 60
+    # Region of interest crop — allows multiple cameras to share one NDI feed
+    # and show different portions of it. Values are fractions 0.0-1.0.
+    # If all four are 0, no crop is applied (full frame).
+    crop_x: float = Field(default=0.0, ge=0.0, le=1.0)
+    crop_y: float = Field(default=0.0, ge=0.0, le=1.0)
+    crop_w: float = Field(default=0.0, ge=0.0, le=1.0)
+    crop_h: float = Field(default=0.0, ge=0.0, le=1.0)
 
     @field_validator("resolution")
     @classmethod

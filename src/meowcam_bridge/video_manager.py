@@ -82,6 +82,10 @@ class VideoSourceManager:
         source = self._create_source(video_cfg, route.label)
         if source is None:
             return None
+        # Apply crop settings
+        if video_cfg.crop_w > 0 and video_cfg.crop_h > 0:
+            source.set_crop(video_cfg.crop_x, video_cfg.crop_y,
+                            video_cfg.crop_w, video_cfg.crop_h)
         try:
             source.start()
         except Exception as exc:
@@ -137,12 +141,60 @@ class VideoSourceManager:
     def on_config_changed(self) -> None:
         """React to a configuration change.
 
-        Stops sources for routes whose video settings have changed and
-        removes them from the cache so they are recreated on next access.
+        Stops and removes sources for routes whose video settings have
+        changed, but preserves sources whose config is unchanged. This
+        prevents unnecessary NDI reconnection (which is slow and can crash)
+        when only a non-video setting like movement_speed was updated.
         """
-        # Simplest safe approach: stop all sources and clear the cache.
-        # The next call to ``get_source`` will recreate with new config.
-        self.stop()
+        for idx, source in list(self._sources.items()):
+            if idx >= len(self._config.routes):
+                # Route was removed — stop its source
+                try:
+                    source.stop()
+                except Exception as exc:
+                    logger.warning("Error stopping removed source %d: %s", idx, exc)
+                del self._sources[idx]
+                continue
+
+            route = self._config.routes[idx]
+            new_video = route.video
+
+            # Check if video config actually changed by comparing key fields
+            old_route_label = source.route_label
+            needs_restart = False
+
+            # Check crop changes (applies to all source types)
+            current_crop = source._crop
+            new_crop = (new_video.crop_x, new_video.crop_y, new_video.crop_w, new_video.crop_h)
+            if current_crop != new_crop:
+                # Crop changed — update in-place, no need to restart source
+                source.set_crop(*new_crop)
+                logger.info("Crop updated for route %d (no restart needed)", idx)
+
+            if isinstance(source, TestPatternSource):
+                # Test pattern: check resolution and label
+                if old_route_label != route.label:
+                    needs_restart = True
+            elif hasattr(source, 'source_name'):  # NDISource
+                # NDI: check source name, label
+                if source.source_name != (new_video.ndi_source_name or None):
+                    needs_restart = True
+                if old_route_label != route.label:
+                    needs_restart = True
+            else:  # USBCaptureSource
+                if source.device != new_video.usb_device_index:
+                    needs_restart = True
+                if old_route_label != route.label:
+                    needs_restart = True
+
+            if needs_restart:
+                logger.info("Video config changed for route %d, restarting source", idx)
+                try:
+                    source.stop()
+                except Exception as exc:
+                    logger.warning("Error stopping source %d: %s", idx, exc)
+                del self._sources[idx]
+            # else: keep the source running — no change needed
 
     def restart_route(self, route_index: int) -> None:
         """Restart the video source for a single route."""
