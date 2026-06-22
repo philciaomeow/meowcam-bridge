@@ -45,7 +45,18 @@ def clean_old_builds() -> None:
     for d in [DIST, BUILD]:
         if d.exists():
             print(f"Cleaning {d}…")
-            shutil.rmtree(d)
+            try:
+                shutil.rmtree(d)
+            except PermissionError:
+                # Windows may hold file handles (indexing, AV, etc.)
+                # Try renaming then deleting the renamed copy
+                import time
+                suffix = f"_old_{int(time.time())}"
+                try:
+                    d.rename(d.with_name(d.name + suffix))
+                    print(f"  Renamed to {d.name}{suffix} (will clean next time)")
+                except Exception:
+                    print(f"  WARNING: could not remove {d}, building alongside it")
     DIST.mkdir(exist_ok=True)
 
 
