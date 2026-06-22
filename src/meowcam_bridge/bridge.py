@@ -2,6 +2,10 @@
 
 Contains the asyncio UDP relay logic, route table, sequence mapping,
 per-route controller session tracking, diagnostics tracking, and command dispatch.
+
+Supports multi-camera operation with shared camera sockets: when multiple routes
+use the same camera source port (e.g. Sony BRBK-IP10 cameras all need port 52381),
+a single shared socket handles all cameras, routing replies by source IP.
 """
 
 from __future__ import annotations
@@ -73,7 +77,17 @@ async def _bind_udp_endpoint(host: str, port: int) -> _UDPEndpoint:
 
 
 class BridgeCore:
-    """Bridge core with async UDP relay, diagnostics, command dispatch, and per-route state."""
+    """Bridge core with async UDP relay, diagnostics, command dispatch, and per-route state.
+
+    Socket architecture:
+      - Single-socket mode: when incoming_port == source_port, one socket handles
+        both controller commands and camera replies for that route.
+      - Two-socket mode (shared): when multiple routes share the same source_port
+        (e.g. multiple Sony cameras all needing port 52381), a single shared camera
+        socket is created per source_port. Controller listeners are per-route.
+        Camera replies are routed by source IP address.
+      - Two-socket mode (solo): legacy fallback for routes with unique source_ports.
+    """
 
     def __init__(self, config: BridgeConfig) -> None:
         self.config = config
@@ -91,7 +105,12 @@ class BridgeCore:
         self._pending_replies: dict[int, dict[int, tuple[int, tuple[str, int], str]]] = {}
         # Async resources
         self._listeners: list[_UDPEndpoint] = []
-        self._camera_sockets: dict[int, _UDPEndpoint] = {}
+        self._listeners_by_route: dict[int, _UDPEndpoint] = {}
+        self._camera_sockets: dict[int, _UDPEndpoint] = {}  # per-route (single-socket mode)
+        self._shared_camera_sockets: dict[int, _UDPEndpoint] = {}  # per source_port (shared mode)
+        self._camera_ip_to_route: dict[str, int] = {}  # reverse map for reply routing
+        self._route_output_profs: dict[int, OutputProfile] = {}  # cached output profiles
+        self._route_input_profs: dict[int, InputProfile] = {}  # cached input profiles
         self._tasks: list[asyncio.Task[Any]] = []
         self._running = False
 
@@ -169,86 +188,131 @@ class BridgeCore:
             return
         self._running = True
 
-        for idx, route in self.config.enabled_routes():
+        enabled = list(self.config.enabled_routes())
+        if not enabled:
+            return
+
+        bind_ip = self.config.bridge_ip or "0.0.0.0"
+
+        # First pass: separate single-socket routes from two-socket routes
+        single_socket_routes: list[tuple[int, CameraRoute, InputProfile, OutputProfile]] = []
+        two_socket_routes: list[tuple[int, CameraRoute, InputProfile, OutputProfile]] = []
+
+        for idx, route in enabled:
             profiles = self._resolve_profiles(route)
             if profiles is None:
                 route.status = "error"
                 continue
             input_prof, output_prof = profiles
-
-            # For Sony BRBK-IP10, the camera socket MUST bind to port 52381
-            # (the camera replies back to source port 52381).
-            # The listener for controller packets should use a DIFFERENT port
-            # (the incoming_port from config, e.g. 52381 for camera 1).
-            # If incoming_port == source_port (both 52381), we have a conflict.
-            # Solution: use a single socket per route that handles both directions,
-            # filtering by source address (controller vs camera).
+            self._route_input_profs[idx] = input_prof
+            self._route_output_profs[idx] = output_prof
 
             source_port = output_prof.source_port()
-            bind_ip = self.config.bridge_ip or "0.0.0.0"
-
             if source_port and source_port == route.incoming_port:
-                # Single-socket mode: one socket handles both controller and camera traffic
-                try:
-                    sock = await _bind_udp_endpoint(bind_ip, source_port)
-                    self._camera_sockets[idx] = sock
-                    self._listeners.append(sock)  # also add as listener for reply sending
-                    logger.info("Route %s single-socket mode on %s:%d (controller+camera)",
-                                route.label, bind_ip, source_port)
-                except OSError as exc:
-                    logger.error("Failed to bind socket for route %s: %s", route.label, exc)
-                    route.status = "error"
-                    continue
-
-                # Send camera reset on startup to clear sequence state
-                await self._send_camera_reset(idx, route, output_prof, sock)
-
-                # Single task handles both directions
-                self._tasks.append(
-                    asyncio.create_task(
-                        self._unified_socket_task(idx, route, input_prof, output_prof, sock),
-                        name=f"unified_{idx}",
-                    )
-                )
+                single_socket_routes.append((idx, route, input_prof, output_prof))
             else:
-                # Two-socket mode: separate listener and camera socket
+                two_socket_routes.append((idx, route, input_prof, output_prof))
+
+        # --- Single-socket routes (unchanged behaviour) ---
+        for idx, route, input_prof, output_prof in single_socket_routes:
+            source_port = output_prof.source_port()
+            try:
+                sock = await _bind_udp_endpoint(bind_ip, source_port)
+                self._camera_sockets[idx] = sock
+                self._listeners.append(sock)
+                logger.info("Route %s single-socket mode on %s:%d (controller+camera)",
+                            route.label, bind_ip, source_port)
+            except OSError as exc:
+                logger.error("Failed to bind socket for route %s: %s", route.label, exc)
+                route.status = "error"
+                continue
+
+            await self._send_camera_reset(idx, route, output_prof, sock)
+
+            self._camera_ip_to_route[route.camera_ip] = idx
+
+            self._tasks.append(
+                asyncio.create_task(
+                    self._unified_socket_task(idx, route, input_prof, output_prof, sock),
+                    name=f"unified_{idx}",
+                )
+            )
+            route.status = "ok"
+
+        # --- Two-socket routes (shared camera socket per source_port) ---
+        # Group by source_port
+        port_groups: dict[int, list[tuple[int, CameraRoute, InputProfile, OutputProfile]]] = {}
+        for idx, route, input_prof, output_prof in two_socket_routes:
+            source_port = output_prof.source_port()
+            port_groups.setdefault(source_port, []).append((idx, route, input_prof, output_prof))
+
+        for source_port, group in port_groups.items():
+            # Create ONE shared camera socket for this source_port
+            shared_cam_sock: _UDPEndpoint | None = None
+            if source_port:
+                try:
+                    shared_cam_sock = await _bind_udp_endpoint(bind_ip, source_port)
+                    self._shared_camera_sockets[source_port] = shared_cam_sock
+                    camera_count = len(group)
+                    logger.info("Shared camera socket on %s:%d for %d camera(s)",
+                                bind_ip, source_port, camera_count)
+                except OSError as exc:
+                    logger.error("Failed to bind shared camera socket on port %d: %s", source_port, exc)
+                    for _, route, _, _ in group:
+                        route.status = "error"
+                    continue
+            else:
+                # No fixed source port — create per-route ephemeral sockets (legacy)
+                pass
+
+            # Process each route in this group
+            for idx, route, input_prof, output_prof in group:
+                # Create per-route controller listener
                 try:
                     listener = await _bind_udp_endpoint(self.config.controller_bind_ip, route.incoming_port)
                     self._listeners.append(listener)
-                    logger.info("Route %s listening on %s:%d", route.label, self.config.controller_bind_ip, route.incoming_port)
+                    self._listeners_by_route[idx] = listener
+                    logger.info("Route %s listening on %s:%d",
+                                route.label, self.config.controller_bind_ip, route.incoming_port)
                 except OSError as exc:
                     logger.error("Failed to bind listener for route %s: %s", route.label, exc)
                     route.status = "error"
                     continue
 
-                try:
-                    if source_port:
-                        camera_sock = await _bind_udp_endpoint(bind_ip, source_port)
-                    else:
-                        camera_sock = await _bind_udp_endpoint(bind_ip, 0)
-                    self._camera_sockets[idx] = camera_sock
-                    logger.info("Route %s camera socket bound to source port %d", route.label, source_port or 0)
-                except OSError as exc:
-                    logger.error("Failed to bind camera socket for route %s: %s", route.label, exc)
-                    route.status = "error"
-                    continue
+                # Register camera IP for reply routing
+                self._camera_ip_to_route[route.camera_ip] = idx
 
-                await self._send_camera_reset(idx, route, output_prof, self._camera_sockets[idx])
+                # Use shared socket if available, otherwise ephemeral per-route
+                cam_sock = shared_cam_sock
+                if cam_sock is None:
+                    try:
+                        cam_sock = await _bind_udp_endpoint(bind_ip, 0)
+                    except OSError as exc:
+                        logger.error("Failed to bind camera socket for route %s: %s", route.label, exc)
+                        route.status = "error"
+                        continue
+                self._camera_sockets[idx] = cam_sock  # store for send_command access
 
+                # Send camera reset
+                await self._send_camera_reset(idx, route, output_prof, cam_sock)
+
+                # Start controller listener (uses shared camera socket for sending)
                 self._tasks.append(
                     asyncio.create_task(
                         self._controller_listener_task(idx, route, input_prof, output_prof, listener),
                         name=f"controller_listener_{idx}",
                     )
                 )
+                route.status = "ok"
+
+            # Start ONE shared camera reply task for this source_port
+            if shared_cam_sock is not None:
                 self._tasks.append(
                     asyncio.create_task(
-                        self._camera_reply_task(idx, route, input_prof, output_prof, self._camera_sockets[idx]),
-                        name=f"camera_reply_{idx}",
+                        self._shared_camera_reply_task(source_port, shared_cam_sock, group),
+                        name=f"shared_camera_reply_{source_port}",
                     )
                 )
-
-            route.status = "ok"
 
     async def stop(self) -> None:
         """Stop all listeners and relay tasks."""
@@ -260,9 +324,20 @@ class BridgeCore:
         for listener in self._listeners:
             listener.close()
         self._listeners.clear()
-        for sock in self._camera_sockets.values():
-            sock.close()
+        self._listeners_by_route.clear()
+        # Close per-route camera sockets (but not shared ones — they're separate)
+        for idx, sock in list(self._camera_sockets.items()):
+            # Don't double-close shared sockets
+            if not any(sock is shared for shared in self._shared_camera_sockets.values()):
+                sock.close()
         self._camera_sockets.clear()
+        # Close shared camera sockets
+        for sock in self._shared_camera_sockets.values():
+            sock.close()
+        self._shared_camera_sockets.clear()
+        self._camera_ip_to_route.clear()
+        self._route_output_profs.clear()
+        self._route_input_profs.clear()
 
     # ------------------------------------------------------------------
     # Camera reset
@@ -306,8 +381,8 @@ class BridgeCore:
     ) -> None:
         """Handle both controller and camera traffic on a single socket.
 
-        Distinguishes by source address: if from camera_ip → it's a camera reply;
-        otherwise → it's a controller command.
+        Distinguishes by source address: if from camera_ip -> it's a camera reply;
+        otherwise -> it's a controller command.
         """
         while self._running:
             try:
@@ -387,7 +462,6 @@ class BridgeCore:
         # Parse the Sony reply packet directly (handles all reply types)
         parsed = parse_visca_ip_packet(data)
         if parsed is None:
-            # Not a standard VISCA-IP packet — try raw
             self._diag["error_count"] += 1
             self._log_event(f"[{route.label}] Unrecognised camera reply from {addr}")
             return
@@ -396,15 +470,12 @@ class BridgeCore:
 
         # Check for sequence abnormality error
         if payload_type == 0x0200 and payload == bytes([0x0F, 0x01]):
-            self._log_event(f"[{route.label}] Camera sequence error — resetting")
-            # Reset sequence state
+            self._log_event(f"[{route.label}] Camera sequence error - resetting")
             route_state = self.route_state(idx)
             route_state["sony_seq"] = 0
-            # Send reset
             import struct
             reset_pkt = struct.pack(">HHI", 0x0200, 1, 0) + bytes([0x01])
             sock.send(reset_pkt, (route.camera_ip, route.camera_port))
-            # Drain
             import asyncio as _aio
             try:
                 while True:
@@ -426,7 +497,6 @@ class BridgeCore:
 
         if mapped is not None:
             controller_seq, return_addr, framing = mapped
-            # Build reply for controller
             reply_data = input_prof.encode_reply(
                 {"payload": payload, "payload_type": payload_type},
                 {"seq": controller_seq, "framing": framing, "payload_type": 0x0111},
@@ -435,18 +505,16 @@ class BridgeCore:
                 sock.send(reply_data, return_addr)
                 self._log_event(f"[{route.label}] Reply to controller {return_addr}: {reply_data.hex()}")
         else:
-            # No mapping found — send to last known controller if any
+            # No mapping found - send to last known controller if any
             if self._diag.get("last_controller_addr"):
                 return_addr = self._diag["last_controller_addr"]
-                # Try to build a reply with the raw data
-                if framing := "visca_ip":
-                    reply_data = input_prof.encode_reply(
-                        {"payload": payload, "payload_type": payload_type},
-                        {"seq": 1, "framing": "visca_ip", "payload_type": payload_type},
-                    )
-                    if reply_data is not None:
-                        sock.send(reply_data, return_addr)
-                        self._log_event(f"[{route.label}] Reply (unmapped) to controller {return_addr}: {reply_data.hex()}")
+                reply_data = input_prof.encode_reply(
+                    {"payload": payload, "payload_type": payload_type},
+                    {"seq": 1, "framing": "visca_ip", "payload_type": payload_type},
+                )
+                if reply_data is not None:
+                    sock.send(reply_data, return_addr)
+                    self._log_event(f"[{route.label}] Reply (unmapped) to controller {return_addr}: {reply_data.hex()}")
 
         self._diag["last_camera_reply"] = {
             "route_index": idx,
@@ -455,7 +523,7 @@ class BridgeCore:
         }
 
     # ------------------------------------------------------------------
-    # Relay tasks (two-socket mode)
+    # Controller listener task (two-socket mode)
     # ------------------------------------------------------------------
 
     async def _controller_listener_task(
@@ -487,17 +555,13 @@ class BridgeCore:
                 self._log_event(f"[{route.label}] Unrecognised packet from {addr}")
                 continue
 
-            # Get or create per-route state
             route_state = self.route_state(idx)
-
-            # Encode for camera output profile (forces address, rewrites sequence)
             camera_packet = output_prof.encode(decoded, route_state)
             if camera_packet is None:
                 self._diag["error_count"] += 1
                 self._log_event(f"[{route.label}] Encode failed for command {decoded.get('type')}")
                 continue
 
-            # Track pending reply mapping: camera_seq -> (controller_seq, controller_addr, framing)
             camera_seq = self._extract_seq(camera_packet)
             controller_seq = decoded.get("seq", 0)
             framing = decoded.get("framing", "visca_ip")
@@ -513,73 +577,151 @@ class BridgeCore:
             }
             self._log_event(f"[{route.label}] TX to camera: {camera_packet.hex()}")
 
-            # Send to camera
+            # Send to camera via shared/per-route camera socket
             camera_sock = self._camera_sockets.get(idx)
             if camera_sock is not None:
                 camera_sock.send(camera_packet, (route.camera_ip, route.camera_port))
 
-    async def _camera_reply_task(
+    # ------------------------------------------------------------------
+    # Shared camera reply task (handles multiple cameras on one socket)
+    # ------------------------------------------------------------------
+
+    async def _shared_camera_reply_task(
+        self,
+        source_port: int,
+        sock: _UDPEndpoint,
+        group: list[tuple[int, CameraRoute, InputProfile, OutputProfile]],
+    ) -> None:
+        """Listen for camera replies on a shared socket and route to the correct controller.
+
+        Determines which route a reply belongs to by matching the source IP
+        to camera IPs in the group. Each camera has its own sequence number space
+        and pending reply map, so there is no cross-camera interference.
+        """
+        # Build IP -> route index map for this group
+        ip_map = {route.camera_ip: idx for idx, route, _, _ in group}
+
+        while self._running:
+            try:
+                data, addr = await sock.receive()
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                logger.warning("Shared camera reply error on port %d: %s", source_port, exc)
+                self._diag["error_count"] += 1
+                continue
+
+            # Route by source IP
+            camera_ip = addr[0]
+            idx = ip_map.get(camera_ip)
+            if idx is None:
+                # Unknown camera — try global map
+                idx = self._camera_ip_to_route.get(camera_ip)
+            if idx is None:
+                logger.warning("Reply from unknown camera %s on shared socket", camera_ip)
+                self._diag["error_count"] += 1
+                continue
+
+            route = self.config.routes[idx]
+            input_prof = self._route_input_profs.get(idx)
+            output_prof = self._route_output_profs.get(idx)
+            if input_prof is None or output_prof is None:
+                profiles = self._resolve_profiles(route)
+                if profiles is None:
+                    continue
+                input_prof, output_prof = profiles
+
+            await self._handle_shared_camera_reply(idx, route, input_prof, output_prof,
+                                                    data, addr, sock)
+
+    async def _handle_shared_camera_reply(
         self,
         idx: int,
         route: CameraRoute,
         input_prof: InputProfile,
         output_prof: OutputProfile,
-        camera_sock: _UDPEndpoint,
+        data: bytes,
+        addr: tuple[str, int],
+        sock: _UDPEndpoint,
     ) -> None:
-        """Listen for camera replies, decode them, map sequence back, and return to controller."""
-        while self._running:
-            try:
-                data, addr = await camera_sock.receive()
-            except asyncio.CancelledError:
-                break
-            except Exception as exc:
-                logger.warning("Camera reply error on route %s: %s", route.label, exc)
-                self._diag["error_count"] += 1
-                continue
+        """Process a camera reply from the shared socket and forward to controller."""
+        self._diag["reply_count"] += 1
+        self._log_event(f"[{route.label}] Camera reply from {addr}: {data.hex()}")
 
-            self._diag["reply_count"] += 1
-            self._log_event(f"[{route.label}] Camera reply from {addr}: {data.hex()}")
+        parsed = parse_visca_ip_packet(data)
+        if parsed is None:
+            self._diag["error_count"] += 1
+            self._log_event(f"[{route.label}] Unrecognised camera reply from {addr}")
+            return
 
+        payload_type, payload_length, cam_seq, payload = parsed
+
+        # Check for sequence abnormality error
+        if payload_type == 0x0200 and payload == bytes([0x0F, 0x01]):
+            self._log_event(f"[{route.label}] Camera sequence error - resetting")
             route_state = self.route_state(idx)
-            decoded = output_prof.decode_reply(data, route_state)
-            if decoded is None:
-                self._diag["error_count"] += 1
-                self._log_event(f"[{route.label}] Unrecognised camera reply from {addr}")
-                continue
+            route_state["sony_seq"] = 0
+            import struct
+            reset_pkt = struct.pack(">HHI", 0x0200, 1, 0) + bytes([0x01])
+            sock.send(reset_pkt, (route.camera_ip, route.camera_port))
+            import asyncio as _aio
+            try:
+                while True:
+                    await _aio.wait_for(sock.receive(), timeout=0.25)
+            except _aio.TimeoutError:
+                pass
+            route_state["sony_seq"] = 0
+            self._pending_replies.get(idx, {}).clear()
+            return
 
-            camera_seq = decoded.get("seq")
-            reply_payload = decoded.get("payload", b"")
-            is_ack = len(reply_payload) >= 2 and reply_payload[1] == 0x41
-            pending = self._pending_replies.get(idx, {})
-            if camera_seq is not None:
-                mapped = pending.get(camera_seq) if is_ack else pending.pop(camera_seq, None)
-            else:
-                mapped = None
+        # ACK vs Completion handling
+        pending = self._pending_replies.get(idx, {})
+        is_ack = len(payload) >= 2 and payload[1] == 0x41
+        if cam_seq is not None:
+            mapped = pending.get(cam_seq) if is_ack else pending.pop(cam_seq, None)
+        else:
+            mapped = None
 
-            if mapped is not None:
-                controller_seq, return_addr, framing = mapped
-                # Build reply for controller with original sequence number and framing
-                reply_cmd = {
-                    "seq": controller_seq,
-                    "framing": framing,
-                    "payload_type": decoded.get("payload_type", VISCA_REPLY_TYPE),
-                }
+        if mapped is not None:
+            controller_seq, return_addr, framing = mapped
+            reply_cmd = {
+                "seq": controller_seq,
+                "framing": framing,
+                "payload_type": payload_type,
+            }
+            reply_data = input_prof.encode_reply(
+                {"payload": payload, "payload_type": payload_type},
+                reply_cmd,
+            )
+            if reply_data is not None:
+                # Send via the route's listener socket (same port the controller sends to)
+                listener = self._listeners_by_route.get(idx)
+                if listener is not None:
+                    listener.send(reply_data, return_addr)
+                    self._log_event(f"[{route.label}] Reply to controller {return_addr}: {reply_data.hex()}")
+                else:
+                    # Fallback: send via camera socket (may not reach controller)
+                    sock.send(reply_data, return_addr)
+                    self._log_event(f"[{route.label}] Reply to controller (via cam sock) {return_addr}: {reply_data.hex()}")
+        else:
+            # No mapping found - send to last known controller if any
+            if self._diag.get("last_controller_addr"):
+                return_addr = self._diag["last_controller_addr"]
                 reply_data = input_prof.encode_reply(
-                    {"payload": decoded.get("payload"), "payload_type": decoded.get("payload_type", VISCA_REPLY_TYPE)},
-                    reply_cmd,
+                    {"payload": payload, "payload_type": payload_type},
+                    {"seq": 1, "framing": "visca_ip", "payload_type": payload_type},
                 )
                 if reply_data is not None:
-                    # Send back to controller via the listener socket (same local port)
-                    listener = self._listeners[idx] if idx < len(self._listeners) else None
+                    listener = self._listeners_by_route.get(idx)
                     if listener is not None:
                         listener.send(reply_data, return_addr)
-                        self._log_event(f"[{route.label}] Reply to controller {return_addr}: {reply_data.hex()}")
+                        self._log_event(f"[{route.label}] Reply (unmapped) to controller {return_addr}: {reply_data.hex()}")
 
-            self._diag["last_camera_reply"] = {
-                "route_index": idx,
-                "payload_hex": decoded.get("payload", b"").hex(),
-                "camera_seq": camera_seq,
-            }
+        self._diag["last_camera_reply"] = {
+            "route_index": idx,
+            "payload_hex": payload.hex(),
+            "camera_seq": cam_seq,
+        }
 
     @staticmethod
     def _extract_seq(packet: bytes) -> int | None:
@@ -606,12 +748,9 @@ class BridgeCore:
         if not route.enabled:
             return CommandResult(ok=False, result="error", detail="route is disabled")
 
-        # Resolve profiles early so we can check for OSD payload overrides
         profiles = self._resolve_profiles(route)
         output_prof = profiles[1] if profiles else None
 
-        # If the output profile overrides this OSD command, use its payload directly.
-        # Otherwise fall back to the bridge core's default payload builder.
         if output_prof is not None and command in output_prof.OSD_PAYLOADS:
             payload = output_prof.OSD_PAYLOADS[command]
         else:
@@ -632,7 +771,6 @@ class BridgeCore:
             if profiles is not None:
                 input_prof, output_prof_live = profiles
                 route_state = self.route_state(route_index)
-                # Build a synthetic decoded command for the output profile
                 cmd = {
                     "payload": payload,
                     "payload_type": 0x0100,  # VISCA_COMMAND_TYPE
@@ -652,10 +790,8 @@ class BridgeCore:
         """Build a VISCA payload bytes for a given command.
 
         Returns None if the command is not recognised.
-        Address byte is omitted here — the output profile forces it to 0x81.
+        Address byte is omitted here - the output profile forces it to 0x81.
         """
-        # Pan/tilt commands (VISCA 8x 01 06 01 VV WW 03 03 FF)
-        # VV = pan speed, WW = tilt speed
         pan_speed = args.get("pan_speed", 3)
         tilt_speed = args.get("tilt_speed", 3)
 
@@ -721,10 +857,8 @@ class BridgeCore:
 
         match test_type:
             case "ping":
-                # Placeholder: real implementation would try UDP reachability
                 return CommandResult(ok=True, result="ok", detail=f"ping placeholder for {route.camera_ip}:{route.camera_port}")
             case "version":
-                # VISCA version inquiry: 81 09 00 02 FF
                 payload = bytes([0x09, 0x00, 0x02, 0xFF])
                 self._diag["last_command"] = {
                     "route_index": route_index,
@@ -732,7 +866,6 @@ class BridgeCore:
                     "payload_hex": payload.hex(),
                 }
                 self._log_event(f"[{route.label}] version inquiry")
-                # If running, send via bridge; otherwise just build
                 if self._running:
                     result = await self.send_command(route_index, "version_inquiry", {})
                     return result
