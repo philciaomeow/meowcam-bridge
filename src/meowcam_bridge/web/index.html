@@ -17,12 +17,13 @@
       </div>
     </div>
     <nav id="tabs" class="tabs">
-      <button class="tab-btn active" data-tab="presets">Presets</button>
+      <button class="tab-btn active" data-tab="preview">Preview</button>
+      <button class="tab-btn" data-tab="presets">Presets</button>
       <button class="tab-btn" data-tab="manual">Manual</button>
       <button class="tab-btn" data-tab="diagnostics">Diagnostics</button>
       <button class="tab-btn" data-tab="settings">Settings</button>
     </nav>
-    <footer>v0.1 · local PTZ bridge<br>made by the meow team</footer>
+    <footer>v0.2 · preview + PTZ bridge<br>made by the meow team</footer>
   </aside>
 
   <div class="workspace">
@@ -31,17 +32,36 @@
       <div>
         <p class="eyebrow">MeowWorks onsite starter app</p>
         <h1>MeowCam Bridge</h1>
-        <p class="subhead" id="page-description">Four cameras at a time, big touch-friendly preset controls.</p>
+        <p class="subhead" id="page-description">Live 2×2 camera grid with preset recall per column.</p>
       </div>
     </div>
     <div class="header-status">
+      <span id="atem-pill" class="atem-pill" hidden>ATEM off</span>
       <span id="osd-pill" class="osd-pill">OSD closed</span>
       <span id="status-indicator" class="badge">Loading…</span>
     </div>
   </header>
 
   <main>
-    <section id="presets" class="tab-panel active">
+    <!-- ====================== PREVIEW TAB (new, v0.2) ====================== -->
+    <section id="preview" class="tab-panel active">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">live preview</p>
+          <h2>Camera preview</h2>
+          <p>2×2 live grid with preset recall under each camera. Click a pane to enlarge; page switches keep only 4 feeds alive.</p>
+        </div>
+        <div class="toolbar">
+          <button class="preview-page-btn active" data-page="0">Cameras 1–4</button>
+          <button class="preview-page-btn" data-page="1">Cameras 5–8</button>
+          <button id="btn-edit-presets" class="accent">Edit preset names</button>
+        </div>
+      </div>
+      <div id="preview-grid" class="preview-grid"></div>
+    </section>
+
+    <!-- ====================== PRESETS TAB (unchanged) ====================== -->
+    <section id="presets" class="tab-panel">
       <div class="section-head">
         <div>
           <p class="eyebrow">quick playback</p>
@@ -51,28 +71,43 @@
         <div class="toolbar">
           <button class="preset-page-btn active" data-page="0">Cameras 1–4</button>
           <button class="preset-page-btn" data-page="1">Cameras 5–8</button>
-          <button id="btn-edit-presets" class="accent">Edit preset names</button>
         </div>
       </div>
       <div id="preset-grid" class="preset-grid"></div>
     </section>
 
+    <!-- ====================== MANUAL TAB (video hero added) ====================== -->
     <section id="manual" class="tab-panel">
       <div class="section-head">
         <div>
           <p class="eyebrow">fallback controls</p>
           <h2>Manual control</h2>
-          <p>Use this if the hardware controller is missing, or for quick checks.</p>
+          <p>Single live pane follows the selected camera; PTZ / lens / OSD on the right.</p>
+        </div>
+        <div class="toolbar">
+          <label class="manual-cam-pick">Camera
+            <select id="manual-camera-select"></select>
+          </label>
         </div>
       </div>
       <div id="osd-warning" class="notice warning" hidden>
         <strong>OSD menu is active.</strong> Pan/tilt/joystick controls may navigate the camera menu instead of moving the shot. Close the menu to return to normal PTZ movement.
       </div>
-      <div class="manual-layout">
-        <aside class="control-card">
-          <label>Select camera</label>
-          <select id="manual-camera-select"></select>
-          <div class="speed-grid">
+      <div class="manual-layout-v2">
+        <div class="manual-video-wrap">
+          <div class="video-pane off" id="manual-video" data-cam="0">
+            <img class="mjpeg" alt="Manual camera preview">
+            <div class="video-overlay">
+              <div class="video-tag"><span class="video-live-dot"></span><span class="vid-label">Camera 1</span><span class="vid-badge"></span></div>
+              <div class="video-meta"><span class="vid-fps">— fps</span></div>
+            </div>
+            <div class="video-stall">Reconnecting…<small>feed paused</small></div>
+            <div class="video-off"><span class="cam-icon">📷</span><span class="vid-off-text">No video source configured</span></div>
+          </div>
+        </div>
+        <div class="controls">
+          <div class="control-card speed-card">
+            <h3>Speed</h3>
             <div class="speed-mode-picker" role="group" aria-label="Speed presets">
               <button class="speed-mode-btn" data-speed="slow">Slow</button>
               <button class="speed-mode-btn active" data-speed="medium">Medium</button>
@@ -83,8 +118,6 @@
             <label>Tilt speed <input id="tilt-speed" type="range" min="1" max="17" value="8"><span>1–17</span></label>
             <label>Zoom speed <input id="zoom-speed" type="range" min="1" max="7" value="4"><span>1–7</span></label>
           </div>
-        </aside>
-        <div class="controls">
           <div class="control-card">
             <h3>Pan / Tilt</h3>
             <div class="ptz-pad">
@@ -110,7 +143,7 @@
             <button data-cmd="menu_back">Back / Left</button>
             <button data-cmd="menu_close">Menu Close</button>
           </div>
-          <div class="control-card preset-actions">
+          <div class="control-card button-stack preset-actions">
             <h3>Preset tools</h3>
             <label>Save # <input type="number" id="save-preset-num" min="1" max="16" value="1"></label>
             <button id="btn-save-preset">Save Preset</button>
@@ -121,6 +154,7 @@
       </div>
     </section>
 
+    <!-- ====================== DIAGNOSTICS TAB (unchanged) ====================== -->
     <section id="diagnostics" class="tab-panel">
       <div class="section-head">
         <div>
@@ -139,12 +173,13 @@
       <div class="log-view"><pre id="event-log">No events yet.</pre></div>
     </section>
 
+    <!-- ====================== SETTINGS TAB (restructured) ====================== -->
     <section id="settings" class="tab-panel">
       <div class="section-head">
         <div>
-          <p class="eyebrow">routing</p>
+          <p class="eyebrow">routing + video</p>
           <h2>Settings</h2>
-          <p>Set each controller channel’s incoming port and matching camera IP.</p>
+          <p>Each camera has a Control Setup block and a Video Setup block. ATEM configuration lives at the bottom.</p>
         </div>
         <div class="actions">
           <button id="btn-export">Export Config</button>
@@ -152,7 +187,7 @@
           <input type="file" id="import-file" accept=".json" hidden>
         </div>
       </div>
-      <div class="settings-card">
+      <div class="settings-card bridge-card">
         <div class="field-row">
           <label>Bridge IP</label>
           <select id="bridge-ip-select"><option value="0.0.0.0">0.0.0.0 (all interfaces)</option></select>
@@ -160,14 +195,8 @@
           <button id="btn-save-bridge-ip">Save Bridge IP</button>
         </div>
       </div>
-      <div class="table-wrap">
-        <table id="routes-table">
-          <thead>
-            <tr><th>#</th><th>On</th><th>Label</th><th>Incoming</th><th>Controller Profile</th><th>Camera Profile</th><th>Camera IP</th><th>Port</th><th>Status</th><th></th></tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </div>
+      <div id="settings-routes"></div>
+      <div id="settings-atem" class="setup-card atem-card"></div>
     </section>
   </main>
   </div>
