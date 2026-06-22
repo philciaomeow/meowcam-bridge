@@ -210,18 +210,31 @@ and the preview panes show a "no video configured" placeholder. Backwards-compat
 
 ## 7. Risks / open questions for the build task
 
-- **NDI on Windows onsite box:** the Python NDI SDK (`ndi-python`) needs the NDI
-  runtime DLLs present and a CPU decode path. If the bridge is packaged as a PyInstaller
-  exe (per `meowcam-bridge.spec`), bundling NDI runtime + an H.264 decode dependency is
-  non-trivial. **Mitigation:** prefer an RTSP/MJPEG encoder on the camera SDI output for
-  v0.2 (no native deps); treat NDI as a v0.3 source once packaging is validated.
-- **Decode CPU:** 4 concurrent decodes + JPEG re-encodes can pin a low-spec onsite CPU.
-  Keep default fps low (8) and resolution modest (640×360); expose fps/quality in
+- **NDI packaging IS viable in v0.2.** Earlier concern that native NDI SDK DLLs
+  would complicate the PyInstaller build is resolved by concurrent research in
+  `research/NDI_RESEARCH.md` (task t_e6ac5b2c): the `ndi-python` PyPI wheel
+  **bundles the NDI runtime DLL** on Windows x64 / macOS arm64 / Linux x64, so
+  `pip install ndi-python` needs **no separate SDK install**, and PyInstaller
+  onedir can collect the DLL via `hiddenimports=['NDIlib']` + `--add-binary`.
+  NDI should therefore be the **primary** video source for v0.2, with RTSP /
+  MJPEG-URL as alternative `source_type` values (see §5).
+- **Endpoint name reconciliation.** The `research/` prototypes (raven) expose
+  `/video.mjpg` + `/snapshot.jpg`; this design uses `/api/video/feed/{route_index}`.
+  Pick the route-indexed `/api/video/feed/{index}` as the **canonical** path in the
+  integrated bridge (matches the existing `/api/*` convention and the per-camera
+  model), and have the build task port the NDI/OpenCV capture loop from
+  `research/ndi_stream_server.py` behind the `frame_iter()` abstraction in §4.
+- **Decode CPU:** 4 concurrent decodes + JPEG re-encodes can pin a low-spec onsite
+  CPU. Keep default fps modest (8) and resolution 640×360; expose fps/quality in
   Settings so an operator can trade down on a weak box.
+- **Threading isolation:** run NDI/OpenCV capture in a dedicated background thread
+  or subprocess (per raven's §9 recommendation) so video work never starves the
+  UDP PTZ relay loop on the same process.
 - **No upstream yet:** since no camera has a configured IP video source today, the
-  mockup ships with a built-in **synthetic test pattern generator** so the UI can be
-  developed and demoed without any camera hardware. The real `_bridge.frame_iter`
-  swaps in behind the same URL.
+  mockup ships with a built-in **synthetic test-pattern generator** so the UI can be
+  developed and demoed without any camera hardware. `preview-prototype.py` proves
+  the `/api/video/feed` contract end-to-end; the real `_bridge.frame_iter` (backed
+  by raven's NDI capture loop) swaps in behind the same URL.
 
 ---
 

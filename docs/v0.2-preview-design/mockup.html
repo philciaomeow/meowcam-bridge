@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<!--
+  MeowCam Bridge — v0.2 Preview / Manual / Settings mockup
+  --------------------------------------------------------
+  Self-contained: open this file directly in any browser. No server needed.
+  A JS test-pattern generator animates the video panes so the 2x2 grid and the
+  manual pane show LIVE motion exactly as a real /api/video/feed/{index} stream
+  would. To wire the real bridge, swap the <canvas> data source for:
+      <img src="/api/video/feed/0" ...>   (see video-client.js)
+  Palette + component classes are lifted verbatim from the shipped styles.css so
+  anything that looks right here looks right in the real app.
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MeowCam Bridge — v0.2 preview mockup</title>
+<style>
+/* ---- Palette (verbatim from shipped styles.css) ---- */
+:root {
+  --bg: #0b1020; --bg2: #111827;
+  --panel: rgba(255,255,255,.08); --panel-strong: rgba(255,255,255,.12);
+  --text: #f6f7fb; --muted: #a9b2c7;
+  --accent: #ffb86c; --accent2: #ff7ab6;
+  --good: #62d394; --danger: #ff6b6b; --warn: #ffd166;
+  --border: rgba(255,255,255,.14);
+  --shadow: 0 24px 80px rgba(0,0,0,.35);
+  --radius: 20px;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; min-height: 100vh;
+  font-family: Inter, system-ui, -apple-system, Segoe UI, sans-serif;
+  color: var(--text);
+  background:
+    radial-gradient(circle at top left, rgba(255,122,182,.24), transparent 34rem),
+    radial-gradient(circle at top right, rgba(255,184,108,.18), transparent 34rem),
+    linear-gradient(135deg, #070a13 0%, #111827 55%, #1d1230 100%);
+}
+.app-shell { width:100%; min-height:100vh; display:grid; grid-template-columns:184px minmax(0,1fr); gap:14px; padding:14px; }
+.workspace { min-width:0; display:grid; grid-template-rows:auto 1fr; gap:12px; }
+.side-nav { position:sticky; top:14px; height:calc(100vh - 28px); display:flex; flex-direction:column; gap:14px; padding:16px; border:1px solid var(--border); border-radius:26px; background:linear-gradient(180deg,rgba(255,255,255,.12),rgba(255,255,255,.055)); box-shadow:var(--shadow); backdrop-filter:blur(16px); }
+.side-brand { display:flex; flex-direction:column; gap:10px; align-items:flex-start; }
+.side-brand strong { font-size:1.15rem; letter-spacing:-.03em; }
+.side-brand span { display:block; color:var(--muted); font-size:.86rem; }
+.hero { display:flex; align-items:center; justify-content:space-between; gap:18px; min-height:86px; padding:16px 20px; border:1px solid var(--border); border-radius:28px; background:linear-gradient(135deg,rgba(255,255,255,.12),rgba(255,255,255,.06)); box-shadow:var(--shadow); backdrop-filter:blur(16px); }
+.brand-lockup { display:flex; gap:18px; align-items:center; }
+.paw-logo { width:64px; height:64px; display:grid; place-items:center; border-radius:22px; background:linear-gradient(135deg,var(--accent),var(--accent2)); box-shadow:0 16px 40px rgba(255,122,182,.28); font-size:34px; }
+.eyebrow { margin:0 0 4px; color:var(--accent); text-transform:uppercase; letter-spacing:.14em; font-size:.72rem; font-weight:800; }
+h1,h2,h3,p { margin-top:0; }
+h1 { margin:0; font-size:clamp(1.8rem,4vw,3.4rem); line-height:.95; letter-spacing:-.06em; }
+.subhead, .section-head p { color:var(--muted); margin-bottom:0; }
+.header-status { display:flex; align-items:center; gap:10px; flex-wrap:wrap; justify-content:flex-end; }
+.badge, .route-status { display:inline-flex; align-items:center; gap:6px; padding:.45rem .7rem; border-radius:999px; font-size:.82rem; color:var(--muted); background:rgba(255,255,255,.08); border:1px solid var(--border); }
+.badge.ok, .route-status.ok { color:var(--good); background:rgba(98,211,148,.12); }
+
+.tabs { display:flex; flex-direction:column; gap:10px; }
+.tab-btn, button { border:1px solid var(--border); color:var(--text); background:rgba(255,255,255,.08); padding:.68rem .9rem; border-radius:999px; cursor:pointer; font-weight:700; transition:transform .15s, border-color .15s, background .15s; }
+.tab-btn:hover, button:hover { transform:translateY(-1px); border-color:rgba(255,184,108,.65); background:rgba(255,255,255,.13); }
+.tab-btn.active, button.accent { background:linear-gradient(135deg,var(--accent),var(--accent2)); color:#201019; border-color:transparent; }
+.tab-panel { display:none; }
+.tab-panel.active { display:block; }
+.section-head { display:grid; grid-template-columns:auto minmax(0,1fr); align-items:center; gap:14px; margin:0 0 12px; }
+.section-head h2 { margin-bottom:2px; font-size:clamp(1.15rem,2vw,1.65rem); letter-spacing:-.04em; }
+.section-head .eyebrow, .section-head p { display:none; }
+.toolbar { display:flex; gap:8px; flex-wrap:wrap; order:-1; }
+
+.camera-preset-card, .control-card, .settings-card, .table-wrap { background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); box-shadow:0 16px 48px rgba(0,0,0,.22); backdrop-filter:blur(14px); }
+.camera-preset-card { padding:12px; display:flex; flex-direction:column; gap:10px; }
+.camera-card-head { display:flex; justify-content:space-between; gap:8px; align-items:flex-start; }
+.camera-card-head h3 { margin:0 0 2px; font-size:1rem; }
+.camera-card-head p { margin:0; color:var(--muted); font-size:.74rem; }
+.preset-buttons { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; }
+.preset-btn { min-height:64px; border-radius:16px; padding:.65rem; position:relative; overflow:hidden; display:grid; place-items:center; text-align:center; border:1px solid var(--border); color:var(--text); background:rgba(255,255,255,.08); cursor:pointer; font-weight:700; }
+.preset-btn strong { position:absolute; inset:0; display:grid; place-items:center; color:rgba(255,255,255,.075); font-size:3.2rem; font-weight:1000; pointer-events:none; }
+.preset-btn span { position:relative; z-index:1; font-size:clamp(1rem,1.35vw,1.38rem); font-weight:900; line-height:1.05; text-wrap:balance; }
+.preset-btn.last-used { background:linear-gradient(135deg,rgba(98,211,148,.28),rgba(255,184,108,.2)); border-color:rgba(98,211,148,.75); }
+
+/* ---- NEW: video pane (v0.2) ---- */
+.video-pane {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  /* touch-friendly: no text selection while tapping */
+  -webkit-user-select: none; user-select: none;
+}
+.video-pane canvas, .video-pane img {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+  background: #000;
+}
+/* live indicator + label overlay */
+.video-overlay {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; justify-content: space-between;
+  padding: 8px 10px; pointer-events: none;
+  background: linear-gradient(180deg, rgba(0,0,0,.5) 0%, transparent 22%, transparent 78%, rgba(0,0,0,.55) 100%);
+}
+.video-tag { display:flex; align-items:center; gap:8px; font-size:.8rem; font-weight:800; color:#fff; text-shadow:0 1px 3px rgba(0,0,0,.8); }
+.video-live-dot { width:9px; height:9px; border-radius:50%; background:var(--danger); box-shadow:0 0 8px var(--danger); animation:pulse 1.6s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+.video-meta { align-self:flex-end; font-size:.72rem; color:#dfe6f4; text-shadow:0 1px 3px rgba(0,0,0,.8); font-variant-numeric:tabular-nums; }
+/* stall / reconnecting overlay */
+.video-pane.stalled .video-stall { display:flex; }
+.video-stall {
+  display:none; position:absolute; inset:0;
+  align-items:center; justify-content:center; flex-direction:column; gap:6px;
+  background:rgba(7,10,19,.82); color:var(--warn); font-weight:800; font-size:.9rem;
+}
+.video-stall small { color:var(--muted); font-weight:600; font-size:.74rem; }
+.video-pane.off .video-off { display:flex; }
+.video-off { display:none; position:absolute; inset:0; align-items:center; justify-content:center; flex-direction:column; gap:4px; background:#0a0f1d; color:var(--muted); font-size:.85rem; }
+.video-off .cam-icon { font-size:2.2rem; opacity:.5; }
+
+/* ---- Preview tab grid ---- */
+.preview-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:12px; }
+.preview-cell { display:flex; flex-direction:column; gap:8px; }
+
+/* ---- Manual tab: video hero + controls ---- */
+.manual-layout-v2 { display:grid; grid-template-columns:minmax(0,1.1fr) minmax(0,1fr); gap:16px; align-items:start; }
+.manual-video-wrap { position:sticky; top:14px; }
+.manual-video-wrap .video-pane { aspect-ratio:16/9; border-radius:var(--radius); }
+.controls { display:grid; grid-template-columns:1.2fr repeat(2,minmax(150px,.8fr)); gap:16px; }
+.control-card { padding:16px; }
+.control-card h3 { margin-bottom:12px; color:var(--accent); }
+.ptz-pad { display:grid; grid-template-columns:repeat(3,minmax(64px,1fr)); grid-template-rows:repeat(3,52px); gap:10px; }
+.ptz-pad button:nth-child(1){grid-column:1;grid-row:2}
+.ptz-pad button:nth-child(2){grid-column:2;grid-row:1}
+.ptz-pad button:nth-child(3){grid-column:2;grid-row:3}
+.ptz-pad button:nth-child(4){grid-column:3;grid-row:2}
+.ptz-pad button:nth-child(5){grid-column:2;grid-row:2}
+.button-stack { display:flex; flex-direction:column; gap:10px; }
+
+/* ---- Settings restructure: two cards per route ---- */
+.route-block { margin-bottom:18px; }
+.route-block-head { display:flex; align-items:center; gap:12px; margin-bottom:8px; }
+.route-block-head .route-number { color:var(--accent); font-weight:900; font-size:1.1rem; }
+.setup-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.setup-card { background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); padding:16px; box-shadow:0 16px 48px rgba(0,0,0,.22); }
+.setup-card h3 { color:var(--accent); margin:0 0 12px; font-size:.98rem; display:flex; align-items:center; gap:8px; }
+.setup-card .field { display:grid; grid-template-columns:130px 1fr; gap:8px; align-items:center; margin-bottom:10px; }
+.setup-card .field label { color:var(--muted); font-weight:700; font-size:.82rem; }
+input[type="text"], input[type="number"], input[type="url"], select {
+  width:100%; background:rgba(5,8,16,.55); border:1px solid var(--border); color:var(--text); padding:.55rem .7rem; border-radius:12px; outline:none; font-size:.85rem;
+}
+.switch input { display:none; }
+.switch span { display:inline-block; width:44px; height:24px; border-radius:999px; background:rgba(255,255,255,.12); position:relative; border:1px solid var(--border); }
+.switch span::after { content:''; position:absolute; width:18px; height:18px; border-radius:50%; top:2px; left:2px; background:var(--muted); transition:left .15s,background .15s; }
+.switch input:checked + span { background:rgba(98,211,148,.18); }
+.switch input:checked + span::after { left:22px; background:var(--good); }
+
+.mockup-note { font-size:.78rem; color:var(--muted); border-left:3px solid var(--accent); padding:6px 12px; margin:0 0 14px; background:rgba(255,184,108,.06); border-radius:0 10px 10px 0; }
+footer { margin-top:auto; padding:0; color:var(--muted); font-size:.78rem; line-height:1.35; }
+
+@media (max-width:1100px) {
+  .app-shell { grid-template-columns:1fr; }
+  .side-nav { position:static; height:auto; }
+  .tabs { flex-direction:row; overflow-x:auto; }
+  .preview-grid, .manual-layout-v2, .controls, .setup-grid { grid-template-columns:1fr; }
+  .section-head { grid-template-columns:1fr; }
+}
+</style>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="side-nav">
+    <div class="side-brand">
+      <div class="paw-logo" aria-hidden="true">🐾</div>
+      <div><strong>MeowWorks</strong><span>MeowCam Bridge</span></div>
+    </div>
+    <nav id="tabs" class="tabs">
+      <button class="tab-btn" data-tab="preview">Preview</button>
+      <button class="tab-btn active" data-tab="presets">Presets</button>
+      <button class="tab-btn" data-tab="manual">Manual</button>
+      <button class="tab-btn" data-tab="settings">Settings</button>
+    </nav>
+    <footer>v0.2 · preview mockup<br>made by the meow team</footer>
+  </aside>
+
+  <div class="workspace">
+  <header class="hero">
+    <div class="brand-lockup">
+      <div class="paw-logo" aria-hidden="true">🐾</div>
+      <div>
+        <p class="eyebrow">MeowWorks onsite starter app</p>
+        <h1>MeowCam Bridge</h1>
+        <p class="subhead" id="page-description">v0.2 preview prototype — live MJPEG test pattern.</p>
+      </div>
+    </div>
+    <div class="header-status">
+      <span id="status-indicator" class="badge ok">Mockup ready</span>
+    </div>
+  </header>
+
+  <main>
+    <div class="mockup-note">
+      <strong>Mockup.</strong> Video panes run a JS test-pattern generator so you can see
+      the grid in motion with no camera hardware. To go live, each <code>&lt;canvas&gt;</code>
+      becomes <code>&lt;img src="/api/video/feed/INDEX"&gt;</code> — see
+      <code>video-client.js</code> and <code>RESEARCH_FINDINGS.md §4</code>.
+    </div>
+
+    <!-- ============ PREVIEW TAB (new) ============ -->
+    <section id="preview" class="tab-panel">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">live preview</p>
+          <h2>Camera preview</h2>
+          <p>2×2 live grid with preset recall under each camera. Page switches keep only 4 feeds alive (connection-cap mitigation).</p>
+        </div>
+        <div class="toolbar">
+          <button class="preset-page-btn active" data-page="0">Cameras 1–4</button>
+          <button class="preset-page-btn" data-page="1">Cameras 5–8</button>
+          <button id="btn-edit-presets" class="accent">Edit preset names</button>
+        </div>
+      </div>
+      <div id="preview-grid" class="preview-grid"></div>
+    </section>
+
+    <!-- ============ PRESETS TAB (unchanged, for reference) ============ -->
+    <section id="presets" class="tab-panel active">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">quick playback</p>
+          <h2>Preset recall</h2>
+          <p>Existing tab — retained in v0.2. Preview tab adds video above each column.</p>
+        </div>
+        <div class="toolbar">
+          <button class="preset-page-btn active" data-page="0">Cameras 1–4</button>
+          <button class="preset-page-btn" data-page="1">Cameras 5–8</button>
+        </div>
+      </div>
+      <div id="preset-grid" class="preview-grid"></div>
+    </section>
+
+    <!-- ============ MANUAL TAB (video hero added) ============ -->
+    <section id="manual" class="tab-panel">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">fallback controls</p>
+          <h2>Manual control</h2>
+          <p>Single live pane follows the selected camera; PTZ/lens/OSD on the right.</p>
+        </div>
+        <div class="toolbar">
+          <label style="display:flex;align-items:center;gap:8px;font-size:.85rem;color:var(--muted);font-weight:700">Camera
+            <select id="manual-camera-select" style="width:auto"></select>
+          </label>
+        </div>
+      </div>
+      <div class="manual-layout-v2">
+        <div class="manual-video-wrap">
+          <div class="video-pane" id="manual-video" data-cam="0">
+            <canvas></canvas>
+            <div class="video-overlay">
+              <div class="video-tag"><span class="video-live-dot"></span><span class="vid-label">Camera 1</span></div>
+              <div class="video-meta"><span class="vid-fps">— fps</span></div>
+            </div>
+            <div class="video-stall">Reconnecting…<small>feed paused</small></div>
+            <div class="video-off"><span class="cam-icon">📷</span>No video source configured</div>
+          </div>
+        </div>
+        <div class="controls">
+          <div class="control-card">
+            <h3>Pan / Tilt</h3>
+            <div class="ptz-pad">
+              <button>◀</button><button>▲</button><button>▼</button><button>▶</button><button class="stop">Stop</button>
+            </div>
+          </div>
+          <div class="control-card button-stack">
+            <h3>Lens</h3>
+            <button>Zoom In +</button><button>Zoom Out −</button><button>Autofocus</button>
+          </div>
+          <div class="control-card button-stack">
+            <h3>OSD Menu</h3>
+            <button>Menu Open</button><button>Enter</button><button>Back</button><button>Close</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ SETTINGS TAB (restructured) ============ -->
+    <section id="settings" class="tab-panel">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">routing + video</p>
+          <h2>Settings</h2>
+          <p>Each camera now has a Camera Control Setup block and a Camera Video Setup block.</p>
+        </div>
+        <div class="toolbar">
+          <button>Export Config</button><button>Import Config</button>
+        </div>
+      </div>
+      <div id="settings-routes"></div>
+    </section>
+  </main>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   MeowCam v0.2 mockup logic
+   - Test-pattern generator stands in for /api/video/feed/{index}
+   - Builds Preview grid (2x2), Presets grid, Manual dropdown,
+     and the restructured Settings route blocks.
+   ============================================================ */
+const MAX_ROUTES = 8;
+const PRESET_NAMES = ['Front Wide','Pulpit','Stage Left','Stage Right','Congregation','Drums','Keyboard','Baptism','Side Wide',' rear Wide','Choir','Center Spot','Walk-In','Back Wall','Aisle','Head Table'];
+const PAGE_DESC = {
+  preview: 'Live 2×2 camera grid with preset recall per column.',
+  presets: 'Preset-only recall (no video) — the existing tab.',
+  manual: 'Single live pane for the selected camera + PTZ controls.',
+  settings: 'Per-camera Control Setup + Video Setup blocks.',
+};
+
+const routes = Array.from({length: MAX_ROUTES}, (_, i) => ({
+  index: i,
+  enabled: i < 4,
+  label: 'Camera ' + (i + 1),
+  camera_ip: '192.168.51.' + (123 + i),
+  status: i < 4 ? 'ok' : 'off',
+  movement_speed: 'medium',
+  preset_labels: PRESET_NAMES.map((n, k) => k < 8 ? n : 'Preset ' + (k + 1)),
+  // v0.2 video block:
+  video: {
+    enabled: i < 4,
+    source_type: i < 4 ? 'ndi' : 'none',
+    ndi_source_name: i < 4 ? 'CAM' + (i + 1) + ' (Birddog)' : '',
+    rtsp_url: '',
+    resolution: '640x360',
+    frame_rate: 8,
+    jpeg_quality: 60,
+  },
+}));
+
+let presetPage = 0;
+
+/* ---------- test-pattern "video" feed (stands in for MJPEG) ---------- */
+const feedCanvases = {};   // camIndex -> {canvas, ctx, raf, lastTs, frames, fpsEl, labelEl}
+function attachFeed(camIndex, videoPane) {
+  const canvas = videoPane.querySelector('canvas');
+  const labelEl = videoPane.querySelector('.vid-label');
+  const fpsEl = videoPane.querySelector('.vid-fps');
+  if (!canvas) return;
+  if (feedCanvases[camIndex]) return; // already running
+  const ctx = canvas.getContext('2d');
+  canvas.width = 640; canvas.height = 360;
+  const hue = (camIndex * 67) % 360;
+  let t0 = performance.now(), frames = 0, phase = 0;
+  const draw = (ts) => {
+    phase += 0.04;
+    const w = canvas.width, h = canvas.height;
+    // moving gradient background
+    const g = ctx.createLinearGradient(0, 0, w, h);
+    g.addColorStop(0, `hsl(${hue},60%,18%)`);
+    g.addColorStop(.5 + 0.4*Math.sin(phase), `hsl(${(hue+40)%360},65%,30%)`);
+    g.addColorStop(1, `hsl(${(hue+80)%360},55%,12%)`);
+    ctx.fillStyle = g; ctx.fillRect(0,0,w,h);
+    // moving crosshair / grid
+    ctx.strokeStyle = 'rgba(255,255,255,.18)'; ctx.lineWidth = 1;
+    for (let x=0; x<=w; x+=40) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,h); ctx.stroke(); }
+    for (let y=0; y<=h; y+=40) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke(); }
+    // panning crosshair to suggest motion
+    const cx = w/2 + 120*Math.sin(phase), cy = h/2 + 60*Math.cos(phase*0.7);
+    ctx.strokeStyle = '#ffb86c'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(cx-30,cy); ctx.lineTo(cx+30,cy); ctx.moveTo(cx,cy-30); ctx.lineTo(cx,cy+30); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx,cy,10,0,Math.PI*2); ctx.stroke();
+    // watermark
+    ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.font = 'bold 22px Inter, sans-serif';
+    ctx.fillText('CAM ' + (camIndex+1), 14, 30);
+    ctx.font = '13px Inter, sans-serif'; ctx.fillStyle = 'rgba(255,255,255,.6)';
+    ctx.fillText('test pattern · ' + new Date().toLocaleTimeString(), 14, 50);
+    // fps
+    frames++; if (ts - t0 >= 1000) { if (fpsEl) fpsEl.textContent = frames + ' fps'; frames=0; t0=ts; }
+    feedCanvases[camIndex].raf = requestAnimationFrame(draw);
+  };
+  if (labelEl) labelEl.textContent = routes[camIndex].label;
+  feedCanvases[camIndex] = {canvas, ctx, raf: requestAnimationFrame(draw), frames, fpsEl, labelEl};
+  videoPane.classList.remove('off');
+}
+function detachFeed(camIndex) {
+  const f = feedCanvases[camIndex];
+  if (!f) return;
+  cancelAnimationFrame(f.raf);
+  delete feedCanvases[camIndex];
+}
+
+function buildVideoPane(camIndex, big) {
+  const route = routes[camIndex];
+  const off = !route.video.enabled;
+  return `
+    <div class="video-pane ${off ? 'off' : ''}" data-cam="${camIndex}">
+      <canvas></canvas>
+      <div class="video-overlay">
+        <div class="video-tag"><span class="video-live-dot"></span><span class="vid-label">${route.label}</span></div>
+        <div class="video-meta"><span class="vid-fps">— fps</span></div>
+      </div>
+      <div class="video-stall">Reconnecting…<small>feed paused</small></div>
+      <div class="video-off"><span class="cam-icon">📷</span>No video source configured</div>
+    </div>`;
+}
+
+/* ---------- Preview + Presets grids ---------- */
+function renderPreviewGrid(gridId, withVideo) {
+  const grid = document.getElementById(gridId);
+  if (!grid) return;
+  grid.innerHTML = '';
+  // tear down feeds that are no longer visible
+  const visibleStart = presetPage * 4;
+  const visible = new Set([0,1,2,3].map(k => visibleStart + k));
+  Object.keys(feedCanvases).forEach(k => {
+    if (!visible.has(Number(k)) || gridId !== 'preview-grid') detachFeed(Number(k));
+  });
+  const slice = routes.slice(visibleStart, visibleStart + 4);
+  slice.forEach((route) => {
+    const cell = document.createElement('article');
+    cell.className = 'camera-preset-card';
+    const presetsHtml = route.preset_labels.map((label, i) => {
+      const n = i + 1;
+      return `<button class="preset-btn"><strong>${n}</strong><span>${label}</span></button>`;
+    }).join('');
+    cell.innerHTML = `
+      <div class="camera-card-head">
+        <div><h3>${route.label}</h3><p>${route.camera_ip} · ${route.video.source_type.toUpperCase() || 'no video'}</p></div>
+        <span class="route-status ${route.status}">${route.status}</span>
+      </div>
+      ${withVideo ? `<div class="preview-cell">${buildVideoPane(route.index)}</div>` : ''}
+      <div class="preset-buttons">${presetsHtml}</div>`;
+    grid.appendChild(cell);
+  });
+  // attach feeds only on the PREVIEW tab (presets tab has none)
+  if (withVideo) {
+    document.querySelectorAll('#' + gridId + ' .video-pane[data-cam]').forEach((pane) => {
+      const ci = Number(pane.dataset.cam);
+      if (routes[ci].video.enabled) attachFeed(ci, pane);
+    });
+  }
+  document.querySelectorAll('.preset-page-btn').forEach((b) => {
+    b.classList.toggle('active', Number(b.dataset.page) === presetPage);
+  });
+}
+
+/* ---------- Manual dropdown + single pane ---------- */
+function renderManualSelect() {
+  const sel = document.getElementById('manual-camera-select');
+  if (!sel) return;
+  const prior = sel.value;
+  sel.innerHTML = '';
+  routes.forEach((r) => {
+    const o = document.createElement('option');
+    o.value = r.index; o.textContent = (r.index+1) + ': ' + r.label + ' (' + r.camera_ip + ')';
+    sel.appendChild(o);
+  });
+  sel.value = prior || 0;
+}
+function syncManualVideo() {
+  const sel = document.getElementById('manual-camera-select');
+  const pane = document.getElementById('manual-video');
+  if (!sel || !pane) return;
+  const ci = Number(sel.value);
+  const route = routes[ci];
+  // detach previous manual feed if switching
+  Object.keys(feedCanvases).forEach(k => { if (k !== String(ci)) detachFeed(Number(k)); });
+  pane.dataset.cam = ci;
+  pane.classList.toggle('off', !route.video.enabled);
+  const labelEl = pane.querySelector('.vid-label');
+  if (labelEl) labelEl.textContent = route.label;
+  if (route.video.enabled) attachFeed(ci, pane);
+  else detachFeed(ci);
+}
+
+/* ---------- Settings: Control Setup + Video Setup per route ---------- */
+const SOURCE_TYPES = [
+  {value:'none', label:'None (no preview)'},
+  {value:'ndi', label:'NDI / NDI|HX source'},
+  {value:'rtsp', label:'RTSP stream'},
+  {value:'mjpeg_url', label:'Direct MJPEG URL'},
+];
+const RESOLUTIONS = ['320x180','480x270','640x360','960x540'];
+function options(opts, sel){ return opts.map(o=>`<option value="${o.value}" ${o.value===sel?'selected':''}>${o.label}</option>`).join(''); }
+
+function renderSettings() {
+  const wrap = document.getElementById('settings-routes');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  routes.forEach((route) => {
+    const v = route.video;
+    const block = document.createElement('div');
+    block.className = 'route-block';
+    block.innerHTML = `
+      <div class="route-block-head">
+        <span class="route-number">#${route.index+1}</span>
+        <input type="text" value="${route.label}" style="flex:1;max-width:240px">
+        <label class="switch"><input type="checkbox" ${route.enabled?'checked':''}><span></span></label>
+      </div>
+      <div class="setup-grid">
+        <div class="setup-card">
+          <h3>🎛️ Camera Control Setup</h3>
+          <div class="field"><label>Camera IP</label><input type="text" value="${route.camera_ip}"></div>
+          <div class="field"><label>Camera port</label><input type="number" value="52381"></div>
+          <div class="field"><label>Incoming port</label><input type="number" value="${52382+route.index}"></div>
+          <div class="field"><label>Controller profile</label><select>${options([{value:'ptzoptics_pt_joy_g4_visca_udp',label:'PT-JOY-G4 VISCA(UDP)'}], route.input_profile||'ptzoptics_pt_joy_g4_visca_udp')}</select></div>
+          <div class="field"><label>Camera profile</label><select>${options([{value:'sony_brc_h900_brbk_ip10',label:'Sony BRC-H900 + BRBK-IP10'}], 'sony_brc_h900_brbk_ip10')}</select></div>
+        </div>
+        <div class="setup-card">
+          <h3>🎥 Camera Video Setup</h3>
+          <div class="field"><label>Video preview</label><label class="switch"><input type="checkbox" ${v.enabled?'checked':''}><span></span></label></div>
+          <div class="field"><label>Source type</label><select>${options(SOURCE_TYPES, v.source_type)}</select></div>
+          <div class="field"><label>NDI source name</label><input type="text" placeholder="e.g. CAM1 (Birddog)" value="${v.ndi_source_name}"></div>
+          <div class="field"><label>RTSP URL</label><input type="url" placeholder="rtsp://…" value="${v.rtsp_url}"></div>
+          <div class="field"><label>Resolution</label><select>${options(RESOLUTIONS.map(r=>({value:r,label:r})), v.resolution)}</select></div>
+          <div class="field"><label>Frame rate</label><input type="number" min="1" max="30" value="${v.frame_rate}"></div>
+          <div class="field"><label>JPEG quality</label><input type="number" min="10" max="95" value="${v.jpeg_quality}"></div>
+        </div>
+      </div>`;
+    wrap.appendChild(block);
+  });
+}
+
+/* ---------- tab switching: start/stop feeds to respect the 4-stream cap ---------- */
+function activateTab(name) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById(name).classList.add('active');
+  const d = document.getElementById('page-description');
+  if (d) d.textContent = PAGE_DESC[name] || '';
+  // Only keep feeds alive on the tab that needs them.
+  if (name === 'preview') {
+    renderPreviewGrid('preview-grid', true);
+  } else if (name === 'manual') {
+    renderPreviewGrid('preview-grid', true); // rebuild (hidden) but feeds off until manual sync
+    Object.keys(feedCanvases).forEach(k => detachFeed(Number(k)));
+    syncManualVideo();
+  } else {
+    // leaving video tabs: kill all feeds to free connections
+    Object.keys(feedCanvases).forEach(k => detachFeed(Number(k)));
+  }
+}
+
+document.querySelectorAll('.tab-btn').forEach((btn) => {
+  btn.addEventListener('click', () => activateTab(btn.dataset.tab));
+});
+document.querySelectorAll('.preset-page-btn').forEach((btn) => {
+  btn.addEventListener('click', () => { presetPage = Number(btn.dataset.page);
+    const onPreview = document.getElementById('preview').classList.contains('active');
+    renderPreviewGrid('preview-grid', onPreview);
+    renderPreviewGrid('preset-grid', false);
+  });
+});
+document.getElementById('manual-camera-select')?.addEventListener('change', syncManualVideo);
+
+/* ---------- init ---------- */
+renderManualSelect();
+renderSettings();
+renderPreviewGrid('preset-grid', false);
+// open on Preview to showcase the grid
+activateTab('preview');
+</script>
+</body>
+</html>
