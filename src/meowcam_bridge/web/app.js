@@ -20,13 +20,21 @@
     camera_ip: '192.168.51.123',
     camera_port: 52381,
     status: 'unknown',
+    movement_speed: 'medium',
     preset_labels: Array.from({ length: MAX_PRESETS }, (_, i) => `Preset ${i + 1}`),
   };
 
   const SPEED_PRESETS = {
-    slow: { label: 'Slow', pan_speed: 4, tilt_speed: 3, zoom_speed: 2 },
-    medium: { label: 'Medium', pan_speed: 10, tilt_speed: 8, zoom_speed: 4 },
-    fast: { label: 'Fast', pan_speed: 18, tilt_speed: 14, zoom_speed: 7 },
+    slow: { label: 'Slow', pan_speed: 3, tilt_speed: 3, zoom_speed: 2 },
+    medium: { label: 'Medium', pan_speed: 9, tilt_speed: 8, zoom_speed: 4 },
+    fast: { label: 'Fast', pan_speed: 18, tilt_speed: 17, zoom_speed: 7 },
+  };
+
+  const PAGE_DESCRIPTIONS = {
+    presets: 'Four cameras at a time, big touch-friendly preset controls.',
+    manual: 'Fallback PTZ, lens, OSD, presets and saved per-camera speeds.',
+    diagnostics: 'Live controller → bridge → camera packet trace for site checks.',
+    settings: 'Configure controller input ports, camera IPs and bridge interfaces.',
   };
 
   const state = {
@@ -37,8 +45,6 @@
     osdActive: false,
     editing: false,
     lastPresets: JSON.parse(localStorage.getItem('meowcam:lastPresets') || '{}'),
-    cameraSpeeds: JSON.parse(localStorage.getItem('meowcam:cameraSpeeds') || '{}'),
-    globalSpeed: localStorage.getItem('meowcam:globalSpeed') || 'medium',
   };
 
   const $ = (selector) => document.querySelector(selector);
@@ -86,26 +92,19 @@
   }
 
   function speedModeFor(routeIndex) {
-    return state.cameraSpeeds[String(routeIndex)] || state.globalSpeed || 'medium';
+    return state.routes[routeIndex]?.movement_speed || 'medium';
   }
 
   function speedArgsFor(routeIndex) {
     return SPEED_PRESETS[speedModeFor(routeIndex)] || SPEED_PRESETS.medium;
   }
 
-  function persistSpeedState() {
-    localStorage.setItem('meowcam:globalSpeed', state.globalSpeed);
-    localStorage.setItem('meowcam:cameraSpeeds', JSON.stringify(state.cameraSpeeds));
-  }
-
   function persistPresetState() {
     localStorage.setItem('meowcam:lastPresets', JSON.stringify(state.lastPresets));
   }
 
-  function applyManualSpeed(mode) {
+  function updateManualSpeedControls(mode) {
     const preset = SPEED_PRESETS[mode] || SPEED_PRESETS.medium;
-    state.globalSpeed = mode;
-    persistSpeedState();
     const pan = $('#pan-speed');
     const tilt = $('#tilt-speed');
     const zoom = $('#zoom-speed');
@@ -113,14 +112,22 @@
     if (tilt) tilt.value = preset.tilt_speed;
     if (zoom) zoom.value = preset.zoom_speed;
     $$('.speed-mode-btn').forEach((btn) => btn.classList.toggle('active', btn.dataset.speed === mode));
-    renderPresets();
   }
 
-  function setCameraSpeed(routeIndex, mode) {
-    state.cameraSpeeds[String(routeIndex)] = mode;
-    persistSpeedState();
+  async function setCameraSpeed(routeIndex, mode, persist = true) {
+    const route = state.routes[routeIndex];
+    if (!route || !SPEED_PRESETS[mode]) return;
+    route.movement_speed = mode;
+    updateManualSpeedControls(mode);
     renderPresets();
-    showStatus(`Camera ${routeIndex + 1} speed set to ${SPEED_PRESETS[mode]?.label || mode}`, true);
+    if (persist) {
+      const payload = { ...route, movement_speed: mode };
+      delete payload.index;
+      await request(`/api/routes/${routeIndex}`, { method: 'PUT', body: JSON.stringify(payload) });
+      showStatus(`${route.label} speed saved as ${SPEED_PRESETS[mode].label}`, true);
+    } else {
+      showStatus(`${route.label} speed set to ${SPEED_PRESETS[mode].label}`, true);
+    }
   }
 
   async function request(path, options = {}) {
@@ -194,6 +201,8 @@
     state.routes = normaliseRoutes(routes);
     renderRoutes();
     renderCameraSelects();
+    const selectedRoute = Number($('#manual-camera-select')?.value || 0);
+    updateManualSpeedControls(speedModeFor(selectedRoute));
     renderPresets();
     showStatus('Ready', true);
   }
@@ -210,6 +219,7 @@
       camera_ip: row.querySelector('[data-field="camera_ip"]').value.trim() || DEFAULT_ROUTE.camera_ip,
       camera_port: Number(row.querySelector('[data-field="camera_port"]').value),
       status: row.dataset.status || 'unknown',
+      movement_speed: state.routes[idx]?.movement_speed || 'medium',
       preset_labels: [...presetLabels],
     };
   }
@@ -332,7 +342,7 @@
       card.querySelectorAll('.camera-speed').forEach((btn) => {
         btn.addEventListener('click', (event) => {
           event.stopPropagation();
-          setCameraSpeed(route.index, btn.dataset.speed);
+          setCameraSpeed(route.index, btn.dataset.speed).catch((err) => alert(`Speed save failed: ${err.message}`));
         });
       });
       const buttons = card.querySelector('.preset-buttons');
@@ -361,6 +371,10 @@
     $$('.preset-page-btn').forEach((btn) => btn.classList.toggle('active', Number(btn.dataset.page) === state.presetPage));
     const editBtn = $('#btn-edit-presets');
     if (editBtn) editBtn.textContent = state.presetEditMode ? 'Done editing preset names' : 'Edit preset names';
+  }
+
+  function isHoldToMoveCommand(command) {
+    return ['pan_left', 'pan_right', 'tilt_up', 'tilt_down', 'zoom_in', 'zoom_out', 'focus_near', 'focus_far'].includes(command);
   }
 
   function commandArgs(command) {
@@ -463,6 +477,8 @@
         $$('.tab-panel').forEach((p) => p.classList.remove('active'));
         btn.classList.add('active');
         document.getElementById(btn.dataset.tab).classList.add('active');
+        const desc = $('#page-description');
+        if (desc) desc.textContent = PAGE_DESCRIPTIONS[btn.dataset.tab] || '';
       });
     });
 
@@ -470,13 +486,20 @@
       state.presetPage = Number(btn.dataset.page);
       renderPresets();
     }));
-    $$('.speed-mode-btn').forEach((btn) => btn.addEventListener('click', () => applyManualSpeed(btn.dataset.speed)));
+    document.addEventListener('click', (event) => {
+      const speedBtn = event.target.closest('.speed-mode-btn');
+      if (!speedBtn) return;
+      const routeIndex = Number($('#manual-camera-select')?.value || 0);
+      setCameraSpeed(routeIndex, speedBtn.dataset.speed, false).catch((err) => alert(`Speed change failed: ${err.message}`));
+    });
+    $('#btn-save-speed')?.addEventListener('click', () => {
+      const routeIndex = Number($('#manual-camera-select')?.value || 0);
+      const mode = speedModeFor(routeIndex);
+      setCameraSpeed(routeIndex, mode, true).catch((err) => alert(`Speed save failed: ${err.message}`));
+    });
     $('#manual-camera-select')?.addEventListener('change', () => {
       const routeIndex = Number($('#manual-camera-select')?.value || 0);
-      const preset = speedArgsFor(routeIndex);
-      $('#pan-speed').value = preset.pan_speed;
-      $('#tilt-speed').value = preset.tilt_speed;
-      $('#zoom-speed').value = preset.zoom_speed;
+      updateManualSpeedControls(speedModeFor(routeIndex));
     });
     $('#btn-edit-presets')?.addEventListener('click', () => {
       state.presetEditMode = !state.presetEditMode;
@@ -498,11 +521,34 @@
     });
 
     $$('.controls button[data-cmd]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const routeIndex = Number($('#manual-camera-select')?.value);
-        const command = btn.dataset.cmd === 'autofocus' ? 'autofocus_toggle' : btn.dataset.cmd;
-        sendCommand(routeIndex, command, commandArgs(command));
-      });
+      const raw = btn.dataset.cmd;
+      const command = raw === 'autofocus' ? 'autofocus_toggle' : raw;
+      if (isHoldToMoveCommand(command)) {
+        let activePointer = null;
+        const startMove = (event) => {
+          event.preventDefault();
+          activePointer = event.pointerId;
+          btn.setPointerCapture?.(event.pointerId);
+          const routeIndex = Number($('#manual-camera-select')?.value);
+          sendCommand(routeIndex, command, commandArgs(command));
+        };
+        const stopMove = (event) => {
+          if (activePointer !== null && event.pointerId !== activePointer) return;
+          activePointer = null;
+          const routeIndex = Number($('#manual-camera-select')?.value);
+          const stopCommand = command.startsWith('zoom_') ? 'zoom_stop' : command.startsWith('focus_') ? 'focus_stop' : 'stop';
+          sendCommand(routeIndex, stopCommand, {});
+        };
+        btn.addEventListener('pointerdown', startMove);
+        btn.addEventListener('pointerup', stopMove);
+        btn.addEventListener('pointercancel', stopMove);
+        btn.addEventListener('pointerleave', (event) => { if (activePointer !== null) stopMove(event); });
+      } else {
+        btn.addEventListener('click', () => {
+          const routeIndex = Number($('#manual-camera-select')?.value);
+          sendCommand(routeIndex, command, commandArgs(command));
+        });
+      }
     });
 
     $('#btn-save-preset')?.addEventListener('click', () => {
@@ -537,7 +583,6 @@
   }
 
   bindEvents();
-  applyManualSpeed(state.globalSpeed);
   loadNetworkInterfaces();
   loadConfig().catch((err) => {
     showStatus('Backend unavailable', false);

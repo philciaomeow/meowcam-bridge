@@ -28,6 +28,7 @@ class CameraRoute(BaseModel):
     camera_ip: str = "192.168.1.100"
     camera_port: int = Field(default=52381, ge=1, le=65535)
     status: Literal["unknown", "ok", "error", "disabled"] = "unknown"
+    movement_speed: Literal["slow", "medium", "fast"] = "medium"
 
     # Preset labels: index 0 = preset 1, etc.
     preset_labels: list[str] = Field(default_factory=lambda: [f"Preset {i}" for i in range(1, 17)])

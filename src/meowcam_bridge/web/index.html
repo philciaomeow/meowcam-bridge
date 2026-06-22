@@ -8,13 +8,30 @@
 </head>
 <body>
 <div class="app-shell">
-  <header class="hero">
-    <div class="brand-lockup">
+  <aside class="side-nav">
+    <div class="side-brand">
       <div class="paw-logo" aria-hidden="true">🐾</div>
       <div>
+        <strong>MeowWorks</strong>
+        <span>MeowCam Bridge</span>
+      </div>
+    </div>
+    <nav id="tabs" class="tabs">
+      <button class="tab-btn active" data-tab="presets">Presets</button>
+      <button class="tab-btn" data-tab="manual">Manual</button>
+      <button class="tab-btn" data-tab="diagnostics">Diagnostics</button>
+      <button class="tab-btn" data-tab="settings">Settings</button>
+    </nav>
+    <footer>v0.1 · local PTZ bridge<br>made by the meow team</footer>
+  </aside>
+
+  <div class="workspace">
+  <header class="hero">
+    <div class="brand-lockup">
+      <div>
         <p class="eyebrow">MeowWorks onsite starter app</p>
-        <h1><span>MeowWorks</span> MeowCam Bridge</h1>
-        <p class="subhead">Touch-friendly controller-to-camera VISCA bridge for Sony BRC-H900 rigs.</p>
+        <h1>MeowCam Bridge</h1>
+        <p class="subhead" id="page-description">Four cameras at a time, big touch-friendly preset controls.</p>
       </div>
     </div>
     <div class="header-status">
@@ -22,13 +39,6 @@
       <span id="status-indicator" class="badge">Loading…</span>
     </div>
   </header>
-
-  <nav id="tabs" class="tabs">
-    <button class="tab-btn active" data-tab="presets">Presets</button>
-    <button class="tab-btn" data-tab="manual">Manual Control</button>
-    <button class="tab-btn" data-tab="diagnostics">Diagnostics</button>
-    <button class="tab-btn" data-tab="settings">Settings</button>
-  </nav>
 
   <main>
     <section id="presets" class="tab-panel active">
@@ -68,7 +78,8 @@
               <button class="speed-mode-btn active" data-speed="medium">Medium</button>
               <button class="speed-mode-btn" data-speed="fast">Fast</button>
             </div>
-            <label>Pan speed <input id="pan-speed" type="range" min="1" max="24" value="10"><span>1–24</span></label>
+            <button id="btn-save-speed" class="accent">Save speed for this camera</button>
+            <label>Pan speed <input id="pan-speed" type="range" min="1" max="18" value="10"><span>1–18</span></label>
             <label>Tilt speed <input id="tilt-speed" type="range" min="1" max="17" value="8"><span>1–17</span></label>
             <label>Zoom speed <input id="zoom-speed" type="range" min="1" max="7" value="4"><span>1–7</span></label>
           </div>
@@ -159,8 +170,7 @@
       </div>
     </section>
   </main>
-
-  <footer>MeowWorks · MeowCam Bridge v0.1 — local onsite PTZ bridge · made by the meow team</footer>
+  </div>
 </div>
 <script src="/static/app.js"></script>
 </body>

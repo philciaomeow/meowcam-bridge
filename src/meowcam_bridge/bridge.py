@@ -792,8 +792,8 @@ class BridgeCore:
         Returns None if the command is not recognised.
         Address byte is omitted here - the output profile forces it to 0x81.
         """
-        pan_speed = args.get("pan_speed", 3)
-        tilt_speed = args.get("tilt_speed", 3)
+        pan_speed = max(1, min(18, int(args.get("pan_speed", 3))))
+        tilt_speed = max(1, min(17, int(args.get("tilt_speed", 3))))
 
         match command:
             case "pan_left":
@@ -812,10 +812,14 @@ class BridgeCore:
             case "zoom_out":
                 zoom_speed = max(1, min(7, int(args.get("zoom_speed", 3))))
                 return bytes([0x01, 0x04, 0x07, 0x30 + zoom_speed, 0xFF])
+            case "zoom_stop":
+                return bytes([0x01, 0x04, 0x07, 0x00, 0xFF])
             case "focus_near":
                 return bytes([0x01, 0x04, 0x08, 0x02, 0xFF])
             case "focus_far":
                 return bytes([0x01, 0x04, 0x08, 0x03, 0xFF])
+            case "focus_stop":
+                return bytes([0x01, 0x04, 0x08, 0x00, 0xFF])
             case "autofocus_toggle":
                 return bytes([0x01, 0x04, 0x38, 0x02, 0xFF])
             case "preset_save":
