@@ -28,6 +28,22 @@ import time
 import webbrowser
 from pathlib import Path
 
+# --- PyInstaller windowed-mode fix ---
+# When console=False, sys.stdout and sys.stderr are None, which crashes
+# uvicorn's logging formatter (it calls .isatty()). Redirect them to a
+# log file before anything else runs.
+if getattr(sys, "frozen", False) and sys.stderr is None:
+    _log_dir = Path(sys.executable).resolve().parent / "logs"
+    try:
+        _log_dir.mkdir(exist_ok=True)
+    except Exception:
+        import tempfile
+        _log_dir = Path(tempfile.gettempdir()) / "MeowCamBridge"
+        _log_dir.mkdir(exist_ok=True)
+    _console_log = open(_log_dir / "console.log", "w", encoding="utf-8")
+    sys.stdout = _console_log
+    sys.stderr = _console_log
+
 logger = logging.getLogger(__name__)
 
 # Config path: alongside the exe (PyInstaller) or cwd (dev)
