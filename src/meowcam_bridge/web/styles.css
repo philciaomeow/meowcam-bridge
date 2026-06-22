@@ -302,6 +302,18 @@ footer { margin-top: auto; padding: 0; color: var(--muted); font-size: .78rem; l
 .ndi-discover-btn:hover { background: var(--panel-strong); }
 .ndi-discover-btn:disabled { opacity: .5; cursor: wait; }
 
+/* Small video preview at top of preset columns */
+.preset-video-pane {
+  aspect-ratio: 16 / 9;
+  min-height: 120px;
+  max-height: 180px;
+  border-radius: 14px 14px 0 0;
+  margin: -8px -8px 8px;
+}
+.preset-video-pane .video-overlay { font-size: .72rem; }
+.preset-video-pane .video-tag { padding: 4px 8px; }
+.camera-preset-card { overflow: hidden; }
+
 @media (max-width: 1250px) {
   .preset-grid { grid-template-columns: repeat(2, minmax(260px, 1fr)); }
   .setup-grid, .atem-grid { grid-template-columns: 1fr; }

@@ -540,7 +540,15 @@
       const speedMode = speedModeFor(route.index);
       const card = document.createElement('article');
       card.className = `camera-preset-card ${route.enabled ? '' : 'disabled'}`;
+      card.dataset.cam = String(route.index);
       card.innerHTML = `
+        <div class="preset-video-pane video-pane off" data-cam="${route.index}">
+          <img class="mjpeg" alt="${escapeHtml(route.label)} preview">
+          <div class="video-overlay">
+            <div class="video-tag"><span class="video-live-dot"></span><span class="vid-label">${escapeHtml(route.label)}</span></div>
+          </div>
+          <div class="video-off"><span class="cam-icon">📷</span></div>
+        </div>
         <div class="camera-card-head">
           <div><h3>${escapeHtml(route.label)}</h3><p>${escapeHtml(route.camera_ip)} · controller in ${route.incoming_port}</p></div>
           <span class="route-status ${escapeHtml(route.status || 'unknown')}">${route.enabled ? escapeHtml(route.status || 'unknown') : 'off'}</span>
@@ -560,9 +568,40 @@
       for (let i = 0; i < MAX_PRESETS; i += 1) buttons.appendChild(makePresetButton(route, i, speedMode));
       grid.appendChild(card);
     });
+    // Start/stop video feeds for preset panes
+    syncPresetFeeds();
     $$('.preset-page-btn').forEach((btn) => btn.classList.toggle('active', Number(btn.dataset.page) === state.presetPage));
     const editBtn = $('#btn-edit-presets');
     if (editBtn) editBtn.textContent = state.presetEditMode ? 'Done editing preset names' : 'Edit preset names';
+  }
+
+  function syncPresetFeeds() {
+    const grid = $('#preset-grid');
+    if (!grid) return;
+    const isActive = $('#presets')?.classList.contains('active');
+    grid.querySelectorAll('.preset-video-pane[data-cam]').forEach((pane) => {
+      const ci = Number(pane.dataset.cam);
+      const route = state.routes[ci];
+      const wantVideo = isActive && !!(route && route.enabled && route.video && route.video.enabled && route.video.source_type !== 'none');
+      if (wantVideo) {
+        pane.classList.remove('off');
+        if (!pane._mcView) {
+          pane._mcView = new MjpegImgView(pane, ci, { ...viewOpts(route), width: 320 });
+          pane._mcView.start();
+        }
+      } else {
+        if (pane._mcView) { pane._mcView.stop(); pane._mcView = null; }
+        pane.classList.add('off');
+      }
+    });
+  }
+
+  function stopPresetFeeds() {
+    const grid = $('#preset-grid');
+    if (!grid) return;
+    grid.querySelectorAll('.preset-video-pane[data-cam]').forEach((pane) => {
+      if (pane._mcView) { pane._mcView.stop(); pane._mcView = null; }
+    });
   }
 
   /* ===================================================================
@@ -1033,6 +1072,11 @@
       renderPreview();
     } else {
       stopPreviewFeeds();
+    }
+    if (name === 'presets') {
+      syncPresetFeeds();
+    } else {
+      stopPresetFeeds();
     }
     if (name === 'manual') {
       syncManualVideo();
