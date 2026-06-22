@@ -43,6 +43,12 @@ async def lifespan(app: FastAPI):
 # FastAPI app (module-level so uvicorn can import it)
 app = FastAPI(title="MeowCam Bridge", version="0.1.0", lifespan=lifespan)
 
+# Serve static web assets (CSS/JS) — mounted at module level so both
+# main() and tray_app.py entry points serve them correctly.
+_web_dir = pathlib.Path(__file__).with_suffix("").parent / "web"
+if _web_dir.exists():
+    app.mount("/static", StaticFiles(directory=str(_web_dir)), name="static")
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -335,11 +341,6 @@ def main() -> int:
         config.save(_config_path)
 
     _bridge = BridgeCore(config)
-
-    # Serve static web assets if present
-    web_dir = pathlib.Path(__file__).with_suffix("").parent / "web"
-    if web_dir.exists():
-        app.mount("/static", StaticFiles(directory=str(web_dir)), name="static")
 
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")
     return 0
