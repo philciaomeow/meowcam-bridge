@@ -1,4 +1,4 @@
-/* MeowCam Bridge — embedded web UI JavaScript */
+/* MeowCam Bridge — embedded web UI JavaScript (v0.2) */
 
 (function () {
   const MAX_ROUTES = 8;
@@ -11,6 +11,23 @@
   const OUTPUT_PROFILES = [
     { value: 'sony_brc_h900_brbk_ip10', label: 'Sony BRC-H900 + BRBK-IP10' },
   ];
+  const VIDEO_SOURCE_TYPES = [
+    { value: 'none', label: 'None (no preview)' },
+    { value: 'ndi', label: 'NDI / NDI|HX source' },
+    { value: 'usb', label: 'USB / HDMI capture card' },
+    { value: 'testpattern', label: 'Test pattern (no hardware)' },
+  ];
+  const RESOLUTIONS = ['320x180', '480x270', '640x360', '960x540', '1280x720'];
+
+  const DEFAULT_VIDEO = {
+    enabled: false,
+    source_type: 'none',
+    ndi_source_name: '',
+    usb_device_index: 0,
+    resolution: '640x360',
+    frame_rate: 8,
+    jpeg_quality: 60,
+  };
   const DEFAULT_ROUTE = {
     enabled: false,
     label: 'Camera',
@@ -22,6 +39,7 @@
     status: 'unknown',
     movement_speed: 'medium',
     preset_labels: Array.from({ length: MAX_PRESETS }, (_, i) => `Preset ${i + 1}`),
+    video: { ...DEFAULT_VIDEO },
   };
 
   const SPEED_PRESETS = {
@@ -31,24 +49,35 @@
   };
 
   const PAGE_DESCRIPTIONS = {
+    preview: 'Live 2×2 camera grid with preset recall per column.',
     presets: 'Four cameras at a time, big touch-friendly preset controls.',
-    manual: 'Fallback PTZ, lens, OSD, presets and saved per-camera speeds.',
+    manual: 'Single live pane for the selected camera + PTZ / lens / OSD controls.',
     diagnostics: 'Live controller → bridge → camera packet trace for site checks.',
-    settings: 'Configure controller input ports, camera IPs and bridge interfaces.',
+    settings: 'Per-camera Control + Video setup, plus ATEM configuration.',
   };
 
   const state = {
     config: null,
     routes: [],
     presetPage: 0,
+    previewPage: 0,
     presetEditMode: false,
     osdActive: false,
     editing: false,
+    booted: false,
     lastPresets: JSON.parse(localStorage.getItem('meowcam:lastPresets') || '{}'),
+    // ATEM tally
+    atem: null,            // {enabled, atem_ip, supersource_aux_output, input_mapping}
+    atemConnected: false,
+    tally: null,           // {pgm, pvw}
   };
 
   const $ = (selector) => document.querySelector(selector);
   const $$ = (selector) => Array.from(document.querySelectorAll(selector));
+
+  /* ===================================================================
+     Helpers
+     =================================================================== */
 
   function cloneDefaultRoute(index) {
     return {
@@ -57,6 +86,7 @@
       incoming_port: 52382 + index,
       camera_ip: `192.168.51.${123 + index}`,
       preset_labels: [...DEFAULT_ROUTE.preset_labels],
+      video: { ...DEFAULT_VIDEO },
     };
   }
 
@@ -103,31 +133,19 @@
     localStorage.setItem('meowcam:lastPresets', JSON.stringify(state.lastPresets));
   }
 
-  function updateManualSpeedControls(mode) {
-    const preset = SPEED_PRESETS[mode] || SPEED_PRESETS.medium;
-    const pan = $('#pan-speed');
-    const tilt = $('#tilt-speed');
-    const zoom = $('#zoom-speed');
-    if (pan) pan.value = preset.pan_speed;
-    if (tilt) tilt.value = preset.tilt_speed;
-    if (zoom) zoom.value = preset.zoom_speed;
-    $$('.speed-mode-btn').forEach((btn) => btn.classList.toggle('active', btn.dataset.speed === mode));
+  function optionsHtml(options, selected) {
+    return options.map((p) => `<option value="${escapeHtml(p.value)}" ${p.value === selected ? 'selected' : ''}>${escapeHtml(p.label)}</option>`).join('');
   }
 
-  async function setCameraSpeed(routeIndex, mode, persist = true) {
-    const route = state.routes[routeIndex];
-    if (!route || !SPEED_PRESETS[mode]) return;
-    route.movement_speed = mode;
-    updateManualSpeedControls(mode);
-    renderPresets();
-    if (persist) {
-      const payload = { ...route, movement_speed: mode };
-      delete payload.index;
-      await request(`/api/routes/${routeIndex}`, { method: 'PUT', body: JSON.stringify(payload) });
-      showStatus(`${route.label} speed saved as ${SPEED_PRESETS[mode].label}`, true);
-    } else {
-      showStatus(`${route.label} speed set to ${SPEED_PRESETS[mode].label}`, true);
-    }
+  function resolutionList() {
+    return RESOLUTIONS.map((r) => ({ value: r, label: r }));
+  }
+
+  /* View options derived from a route's video config */
+  function viewOpts(route) {
+    const v = route?.video || DEFAULT_VIDEO;
+    const width = parseInt(String(v.resolution).split('x')[0], 10) || 480;
+    return { fps: v.frame_rate || 8, quality: v.jpeg_quality || 60, width };
   }
 
   async function request(path, options = {}) {
@@ -150,14 +168,147 @@
       const existing = routes.find((r) => r.index === i) || routes[i];
       const route = { ...cloneDefaultRoute(i), ...(existing || {}), index: i };
       route.preset_labels = (route.preset_labels || []).concat(DEFAULT_ROUTE.preset_labels).slice(0, MAX_PRESETS);
+      route.video = { ...DEFAULT_VIDEO, ...(route.video || {}) };
       padded.push(route);
     }
     return padded;
   }
 
-  function optionsHtml(options, selected) {
-    return options.map((p) => `<option value="${escapeHtml(p.value)}" ${p.value === selected ? 'selected' : ''}>${escapeHtml(p.label)}</option>`).join('');
+  function updateManualSpeedControls(mode) {
+    const preset = SPEED_PRESETS[mode] || SPEED_PRESETS.medium;
+    const pan = $('#pan-speed');
+    const tilt = $('#tilt-speed');
+    const zoom = $('#zoom-speed');
+    if (pan) pan.value = preset.pan_speed;
+    if (tilt) tilt.value = preset.tilt_speed;
+    if (zoom) zoom.value = preset.zoom_speed;
+    $$('.speed-mode-btn').forEach((btn) => btn.classList.toggle('active', btn.dataset.speed === mode));
   }
+
+  async function setCameraSpeed(routeIndex, mode, persist = true) {
+    const route = state.routes[routeIndex];
+    if (!route || !SPEED_PRESETS[mode]) return;
+    route.movement_speed = mode;
+    updateManualSpeedControls(mode);
+    renderPresets();
+    renderPreview();
+    if (persist) {
+      const payload = { ...route, movement_speed: mode };
+      delete payload.index;
+      await request(`/api/routes/${routeIndex}`, { method: 'PUT', body: JSON.stringify(payload) });
+      showStatus(`${route.label} speed saved as ${SPEED_PRESETS[mode].label}`, true);
+    } else {
+      showStatus(`${route.label} speed set to ${SPEED_PRESETS[mode].label}`, true);
+    }
+  }
+
+  /* ===================================================================
+     MJPEG <img> video view + watchdog
+     (ported from docs/v0.2-preview-design/video-client.js, MJPEG only)
+     =================================================================== */
+
+  class MjpegImgView {
+    constructor(pane, camIndex, opts = {}) {
+      this.pane = pane;
+      this.cam = camIndex;
+      this.opts = { fps: 8, quality: 60, width: 480, ...opts };
+      this.stalled = false;
+      this._watchdog = null;
+      this._pollTimer = null;
+      this._reconnect = null;
+      this._lastFrame = performance.now();
+      this._frames = 0;
+      this._fpsT0 = performance.now();
+      this._img = null;
+    }
+
+    start() {
+      this.pane.classList.remove('off');
+      let img = this.pane.querySelector('img.mjpeg');
+      if (!img) {
+        const canvas = this.pane.querySelector('canvas');
+        if (canvas) canvas.remove();
+        img = document.createElement('img');
+        img.className = 'mjpeg';
+        img.alt = `Camera ${this.cam + 1} preview`;
+        img.decoding = 'async';
+        this.pane.prepend(img);
+      }
+      this._img = img;
+      img.addEventListener('load', () => this._onFrame());
+      img.addEventListener('error', () => this._scheduleReconnect());
+      this._loadSrc();
+      this._startWatchdog(3000);
+      // Frame-presence poll: <img> never fires onload on multipart replace
+      // parts in Chromium, so we confirm pixels are flowing via naturalWidth.
+      this._pollTimer = setInterval(() => {
+        if (this._img && this._img.naturalWidth > 1) this._onFrame();
+      }, 700);
+    }
+
+    _loadSrc() {
+      const { fps, quality, width } = this.opts;
+      const bust = Date.now();
+      this._img.src =
+        `/api/video/feed/${this.cam}?fps=${fps}&quality=${quality}&width=${width}&t=${bust}`;
+    }
+
+    _onFrame() {
+      this._lastFrame = performance.now();
+      this._frames++;
+      const now = performance.now();
+      if (now - this._fpsT0 >= 1000) {
+        const fpsEl = this.pane.querySelector('.vid-fps');
+        if (fpsEl) fpsEl.textContent = `${this._frames} fps`;
+        this._frames = 0;
+        this._fpsT0 = now;
+      }
+      if (this.stalled) {
+        this.stalled = false;
+        this.pane.classList.remove('stalled');
+      }
+    }
+
+    _startWatchdog(timeoutMs = 3000) {
+      this._stopWatchdog();
+      this._watchdog = setInterval(() => {
+        const idle = performance.now() - this._lastFrame;
+        if (idle > timeoutMs && !this.stalled) {
+          this.stalled = true;
+          this.pane.classList.add('stalled');
+          this._scheduleReconnect();
+        }
+      }, 1000);
+    }
+
+    _stopWatchdog() {
+      if (this._watchdog) { clearInterval(this._watchdog); this._watchdog = null; }
+    }
+
+    _scheduleReconnect() {
+      clearTimeout(this._reconnect);
+      this._reconnect = setTimeout(() => {
+        if (!this._img) return;
+        this._loadSrc();
+      }, 1200);
+    }
+
+    stop() {
+      this._stopWatchdog();
+      clearTimeout(this._reconnect);
+      clearInterval(this._pollTimer);
+      if (this._img) {
+        // Force the browser to abort the underlying multipart connection.
+        this._img.src = '';
+        this._img.removeAttribute('src');
+      }
+      this.pane.classList.remove('stalled');
+    }
+  }
+
+  /* ===================================================================
+     Config / routes loading
+     =================================================================== */
 
   async function loadNetworkInterfaces() {
     try {
@@ -173,12 +324,13 @@
         sel.appendChild(opt);
       });
       if (prior) sel.value = prior;
-    } catch (_) {}
+    } catch (_) { /* non-fatal */ }
   }
 
   async function loadConfig() {
     state.config = await request('/api/config');
     if (state.config.error) throw new Error(state.config.error);
+    state.atem = state.config.atem || null;
     const currentIP = state.config.bridge_ip || '0.0.0.0';
     const bridgeSel = $('#bridge-ip-select');
     if (bridgeSel) {
@@ -192,6 +344,7 @@
     }
     const manual = $('#bridge-ip-manual');
     if (manual) manual.value = '';
+    updateAtemPill();
     await loadRoutes();
   }
 
@@ -199,41 +352,44 @@
     if (state.editing) return;
     const routes = await request('/api/routes');
     state.routes = normaliseRoutes(routes);
-    renderRoutes();
+    renderSettingsRoutes();
+    renderAtemConfig();
     renderCameraSelects();
+    renderPreview();
+    renderPresets();
     const selectedRoute = Number($('#manual-camera-select')?.value || 0);
     updateManualSpeedControls(speedModeFor(selectedRoute));
-    renderPresets();
+    if ($('#manual')?.classList.contains('active')) syncManualVideo();
+    state.booted = true;
     showStatus('Ready', true);
   }
 
-  function routeFromRow(row) {
-    const idx = Number(row.dataset.index);
-    const presetLabels = state.routes[idx]?.preset_labels || DEFAULT_ROUTE.preset_labels;
-    return {
-      enabled: row.querySelector('[data-field="enabled"]').checked,
-      label: row.querySelector('[data-field="label"]').value.trim() || `Camera ${idx + 1}`,
-      incoming_port: Number(row.querySelector('[data-field="incoming_port"]').value),
-      input_profile: row.querySelector('[data-field="input_profile"]').value || DEFAULT_ROUTE.input_profile,
-      output_profile: row.querySelector('[data-field="output_profile"]').value || DEFAULT_ROUTE.output_profile,
-      camera_ip: row.querySelector('[data-field="camera_ip"]').value.trim() || DEFAULT_ROUTE.camera_ip,
-      camera_port: Number(row.querySelector('[data-field="camera_port"]').value),
-      status: row.dataset.status || 'unknown',
-      movement_speed: state.routes[idx]?.movement_speed || 'medium',
-      preset_labels: [...presetLabels],
-    };
-  }
+  /* ===================================================================
+     Preset button builder (shared by Preview + Presets tabs)
+     =================================================================== */
 
-  async function saveRoute(index) {
-    const row = $(`#routes-table tbody tr[data-index="${index}"]`);
-    if (!row) return;
-    state.editing = false;
-    const payload = routeFromRow(row);
-    await request(`/api/routes/${index}`, { method: 'PUT', body: JSON.stringify(payload) });
-    showStatus(`Saved ${payload.label} — restarting bridge…`, true);
-    try { await request('/api/bridge/restart', { method: 'POST', body: '{}' }); } catch (_) {}
-    await loadRoutes();
-    showStatus(`Saved ${payload.label}`, true);
+  function makePresetButton(route, i, speedMode) {
+    const presetNumber = i + 1;
+    const btn = document.createElement('button');
+    const isLast = Number(state.lastPresets[String(route.index)]) === presetNumber;
+    btn.className = `${state.presetEditMode ? 'preset-btn editing' : 'preset-btn'} ${isLast ? 'last-used' : ''}`;
+    btn.innerHTML = `<strong>${presetNumber}</strong><span>${escapeHtml(route.preset_labels?.[i] || `Preset ${presetNumber}`)}</span>`;
+    btn.title = state.presetEditMode
+      ? 'Click to rename this preset'
+      : `Recall preset at ${SPEED_PRESETS[speedMode]?.label || 'Medium'} speed`;
+    btn.disabled = !route.enabled && !state.presetEditMode;
+    btn.addEventListener('click', () => {
+      if (state.presetEditMode) {
+        renamePreset(route.index, i).catch((err) => alert(`Rename failed: ${err.message}`));
+      } else {
+        state.lastPresets[String(route.index)] = presetNumber;
+        persistPresetState();
+        renderPresets();
+        renderPreview();
+        sendCommand(route.index, 'preset_recall', { preset: presetNumber, ...speedArgsFor(route.index) });
+      }
+    });
+    return btn;
   }
 
   async function savePresetLabels(routeIndex, labels) {
@@ -256,68 +412,146 @@
     labels[presetIndex] = next.trim() || `Preset ${presetIndex + 1}`;
     await savePresetLabels(routeIndex, labels);
     renderPresets();
+    renderPreview();
   }
 
-  async function testRoute(index) {
-    try {
-      showStatus(`Testing camera ${index + 1}…`, true);
-      const result = await request(`/api/routes/${index}/test`, {
-        method: 'POST', body: JSON.stringify({ type: 'version' }),
+  /* ===================================================================
+     PREVIEW TAB — 2x2 grid, click-to-enlarge, per-column presets
+     =================================================================== */
+
+  function buildPreviewCell(camIndex) {
+    const route = state.routes[camIndex];
+    const speedMode = speedModeFor(camIndex);
+    const cell = document.createElement('article');
+    cell.className = `preview-cell camera-preset-card ${route.enabled ? '' : 'disabled'}`;
+    cell.dataset.cam = String(camIndex);
+    cell.innerHTML = `
+      <div class="video-pane off" data-cam="${camIndex}">
+        <img class="mjpeg" alt="${escapeHtml(route.label)} preview">
+        <div class="video-overlay">
+          <div class="video-tag"><span class="video-live-dot"></span><span class="vid-label">${escapeHtml(route.label)}</span><span class="vid-badge"></span></div>
+          <div class="video-meta"><span class="vid-fps">— fps</span></div>
+        </div>
+        <div class="video-stall">Reconnecting…<small>feed paused</small></div>
+        <div class="video-off"><span class="cam-icon">📷</span><span class="vid-off-text">No video source</span></div>
+      </div>
+      <div class="camera-card-head">
+        <div><h3>${escapeHtml(route.label)}</h3><p>${escapeHtml(route.camera_ip)} · ${escapeHtml((route.video?.source_type || 'none').toUpperCase())}</p></div>
+        <span class="route-status ${escapeHtml(route.status || 'unknown')}">${route.enabled ? escapeHtml(route.status || 'unknown') : 'off'}</span>
+      </div>
+      <div class="camera-speed-bar">
+        ${Object.entries(SPEED_PRESETS).map(([mode, p]) => `<button class="camera-speed ${mode === speedMode ? 'active' : ''}" data-speed="${mode}">${p.label}</button>`).join('')}
+      </div>
+      <div class="preset-buttons"></div>
+      <div class="preview-enlarge-hint">click video to enlarge</div>
+    `;
+    const pbc = cell.querySelector('.preset-buttons');
+    for (let i = 0; i < MAX_PRESETS; i += 1) pbc.appendChild(makePresetButton(route, i, speedMode));
+    cell.querySelectorAll('.camera-speed').forEach((btn) => {
+      btn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        setCameraSpeed(camIndex, btn.dataset.speed).catch((err) => alert(`Speed save failed: ${err.message}`));
       });
-      alert(`${result.route_label}: ${result.ok ? 'OK' : 'FAILED'}\n${result.detail || result.result}`);
-      await loadRoutes();
-      await loadDiagnostics();
-    } catch (err) {
-      showStatus('Test failed', false);
-      alert(`Camera test failed: ${err.message}`);
+    });
+    cell.querySelector('.video-pane').addEventListener('click', () => toggleEnlarge(camIndex));
+    return cell;
+  }
+
+  function toggleEnlarge(camIndex) {
+    const grid = $('#preview-grid');
+    if (!grid) return;
+    const cell = grid.querySelector(`.preview-cell[data-cam="${camIndex}"]`);
+    if (!cell) return;
+    const nowEnlarged = !cell.classList.contains('enlarged');
+    grid.querySelectorAll('.preview-cell.enlarged').forEach((c) => c.classList.remove('enlarged'));
+    cell.classList.toggle('enlarged', nowEnlarged);
+    grid.classList.toggle('has-enlarged', nowEnlarged);
+  }
+
+  function updatePreviewCells() {
+    const grid = $('#preview-grid');
+    if (!grid) return;
+    grid.querySelectorAll('.preview-cell').forEach((cell) => {
+      const ci = Number(cell.dataset.cam);
+      const route = state.routes[ci];
+      if (!route) return;
+      const speedMode = speedModeFor(ci);
+      cell.classList.toggle('disabled', !route.enabled);
+      const h3 = cell.querySelector('.camera-card-head h3');
+      if (h3) h3.textContent = route.label;
+      const p = cell.querySelector('.camera-card-head p');
+      if (p) p.textContent = `${route.camera_ip} · ${(route.video?.source_type || 'none').toUpperCase()}`;
+      const st = cell.querySelector('.route-status');
+      if (st) {
+        st.className = `route-status ${escapeHtml(route.status || 'unknown')}`;
+        st.textContent = route.enabled ? (route.status || 'unknown') : 'off';
+      }
+      cell.querySelectorAll('.camera-speed').forEach((b) => b.classList.toggle('active', b.dataset.speed === speedMode));
+      const pbc = cell.querySelector('.preset-buttons');
+      if (pbc) {
+        pbc.innerHTML = '';
+        for (let i = 0; i < MAX_PRESETS; i += 1) pbc.appendChild(makePresetButton(route, i, speedMode));
+      }
+      const lab = cell.querySelector('.vid-label');
+      if (lab) lab.textContent = route.label;
+    });
+  }
+
+  function syncPreviewFeeds() {
+    const grid = $('#preview-grid');
+    if (!grid) return;
+    grid.querySelectorAll('.video-pane[data-cam]').forEach((pane) => {
+      const ci = Number(pane.dataset.cam);
+      const route = state.routes[ci];
+      const wantVideo = !!(route && route.enabled && route.video && route.video.enabled && route.video.source_type !== 'none');
+      if (wantVideo) {
+        pane.classList.remove('off');
+        if (!pane._mcView) {
+          pane._mcView = new MjpegImgView(pane, ci, viewOpts(route));
+          pane._mcView.start();
+        }
+      } else {
+        if (pane._mcView) { pane._mcView.stop(); pane._mcView = null; }
+        pane.classList.add('off');
+      }
+    });
+    applyTally();
+  }
+
+  function stopPreviewFeeds() {
+    const grid = $('#preview-grid');
+    if (!grid) return;
+    grid.querySelectorAll('.video-pane[data-cam]').forEach((pane) => {
+      if (pane._mcView) { pane._mcView.stop(); pane._mcView = null; }
+    });
+  }
+
+  function renderPreview() {
+    const grid = $('#preview-grid');
+    if (!grid) return;
+    const start = state.previewPage * 4;
+    const cams = [0, 1, 2, 3].map((k) => start + k);
+    const existing = Array.from(grid.querySelectorAll('.preview-cell')).map((c) => Number(c.dataset.cam));
+    const same = existing.length === cams.length && cams.every((c, i) => existing[i] === c);
+    if (same) {
+      updatePreviewCells();
+      syncPreviewFeeds();
+      return;
     }
+    // full rebuild — tear down any feeds first
+    stopPreviewFeeds();
+    grid.innerHTML = '';
+    grid.classList.remove('has-enlarged');
+    cams.forEach((camIndex) => grid.appendChild(buildPreviewCell(camIndex)));
+    syncPreviewFeeds();
+    $$('.preview-page-btn').forEach((btn) => btn.classList.toggle('active', Number(btn.dataset.page) === state.previewPage));
+    const editBtn = $('#btn-edit-presets');
+    if (editBtn) editBtn.textContent = state.presetEditMode ? 'Done editing preset names' : 'Edit preset names';
   }
 
-  function renderRoutes() {
-    const tbody = $('#routes-table tbody');
-    if (!tbody) return;
-    tbody.innerHTML = '';
-    state.routes.forEach((r) => {
-      const tr = document.createElement('tr');
-      tr.dataset.index = r.index;
-      tr.dataset.status = r.status || 'unknown';
-      tr.innerHTML = `
-        <td class="route-number">${r.index + 1}</td>
-        <td><label class="switch"><input data-field="enabled" type="checkbox" ${r.enabled ? 'checked' : ''}><span></span></label></td>
-        <td><input data-field="label" type="text" value="${escapeHtml(r.label)}"></td>
-        <td><input data-field="incoming_port" type="number" min="1" max="65535" value="${r.incoming_port}"></td>
-        <td><select data-field="input_profile">${optionsHtml(INPUT_PROFILES, r.input_profile || DEFAULT_ROUTE.input_profile)}</select></td>
-        <td><select data-field="output_profile">${optionsHtml(OUTPUT_PROFILES, r.output_profile || DEFAULT_ROUTE.output_profile)}</select></td>
-        <td><input data-field="camera_ip" type="text" value="${escapeHtml(r.camera_ip)}"></td>
-        <td><input data-field="camera_port" type="number" min="1" max="65535" value="${r.camera_port}"></td>
-        <td><span class="route-status ${escapeHtml(r.status || 'unknown')}">${escapeHtml(r.status || 'unknown')}</span></td>
-        <td class="row-actions"><button data-action="save-route">Save</button><button data-action="test-route">Test</button></td>
-      `;
-      tr.querySelectorAll('input, select').forEach((el) => {
-        el.addEventListener('focus', () => { state.editing = true; });
-        el.addEventListener('change', () => { state.editing = true; });
-      });
-      tbody.appendChild(tr);
-    });
-  }
-
-  function renderCameraSelects() {
-    const enabled = state.routes.filter((r) => r.enabled);
-    const list = enabled.length ? enabled : state.routes;
-    ['manual-camera-select'].forEach((id) => {
-      const sel = document.getElementById(id);
-      if (!sel) return;
-      const prior = sel.value;
-      sel.innerHTML = '';
-      list.forEach((r) => {
-        const opt = document.createElement('option');
-        opt.value = r.index;
-        opt.textContent = `${r.index + 1}: ${r.label} (${r.camera_ip})${r.enabled ? '' : ' (disabled)'}`;
-        sel.appendChild(opt);
-      });
-      if (prior && list.some((r) => String(r.index) === String(prior))) sel.value = prior;
-    });
-  }
+  /* ===================================================================
+     PRESETS TAB (no video — unchanged behaviour)
+     =================================================================== */
 
   function renderPresets() {
     const grid = $('#preset-grid');
@@ -346,32 +580,307 @@
         });
       });
       const buttons = card.querySelector('.preset-buttons');
-      (route.preset_labels || DEFAULT_ROUTE.preset_labels).slice(0, MAX_PRESETS).forEach((label, i) => {
-        const presetNumber = i + 1;
-        const btn = document.createElement('button');
-        const isLast = Number(state.lastPresets[String(route.index)]) === presetNumber;
-        btn.className = `${state.presetEditMode ? 'preset-btn editing' : 'preset-btn'} ${isLast ? 'last-used' : ''}`;
-        btn.innerHTML = `<strong>${presetNumber}</strong><span>${escapeHtml(label || `Preset ${presetNumber}`)}</span>`;
-        btn.title = state.presetEditMode ? 'Click to rename this preset' : `Recall preset at ${SPEED_PRESETS[speedMode]?.label || 'Medium'} speed mode`;
-        btn.disabled = !route.enabled && !state.presetEditMode;
-        btn.addEventListener('click', () => {
-          if (state.presetEditMode) {
-            renamePreset(route.index, i).catch((err) => alert(`Rename failed: ${err.message}`));
-          } else {
-            state.lastPresets[String(route.index)] = presetNumber;
-            persistPresetState();
-            renderPresets();
-            sendCommand(route.index, 'preset_recall', { preset: presetNumber, ...speedArgsFor(route.index) });
-          }
-        });
-        buttons.appendChild(btn);
-      });
+      for (let i = 0; i < MAX_PRESETS; i += 1) buttons.appendChild(makePresetButton(route, i, speedMode));
       grid.appendChild(card);
     });
     $$('.preset-page-btn').forEach((btn) => btn.classList.toggle('active', Number(btn.dataset.page) === state.presetPage));
     const editBtn = $('#btn-edit-presets');
     if (editBtn) editBtn.textContent = state.presetEditMode ? 'Done editing preset names' : 'Edit preset names';
   }
+
+  /* ===================================================================
+     MANUAL TAB — camera select + single video pane
+     =================================================================== */
+
+  function renderCameraSelects() {
+    const enabled = state.routes.filter((r) => r.enabled);
+    const list = enabled.length ? enabled : state.routes;
+    const sel = $('#manual-camera-select');
+    if (!sel) return;
+    const prior = sel.value;
+    sel.innerHTML = '';
+    list.forEach((r) => {
+      const opt = document.createElement('option');
+      opt.value = r.index;
+      opt.textContent = `${r.index + 1}: ${r.label} (${r.camera_ip})${r.enabled ? '' : ' (disabled)'}`;
+      sel.appendChild(opt);
+    });
+    if (prior && list.some((r) => String(r.index) === String(prior))) sel.value = prior;
+  }
+
+  function syncManualVideo() {
+    const pane = $('#manual-video');
+    const sel = $('#manual-camera-select');
+    if (!pane || !sel) return;
+    const ci = Number(sel.value || 0);
+    const route = state.routes[ci] || cloneDefaultRoute(ci);
+    pane.dataset.cam = String(ci);
+    const label = pane.querySelector('.vid-label');
+    if (label) label.textContent = route.label;
+    const wantVideo = !!(route.enabled && route.video && route.video.enabled && route.video.source_type !== 'none');
+    if (wantVideo) {
+      pane.classList.remove('off');
+      if (!pane._mcView || pane._mcView.cam !== ci) {
+        if (pane._mcView) pane._mcView.stop();
+        pane._mcView = new MjpegImgView(pane, ci, viewOpts(route));
+        pane._mcView.start();
+      }
+    } else {
+      if (pane._mcView) { pane._mcView.stop(); pane._mcView = null; }
+      pane.classList.add('off');
+    }
+    applyTally();
+  }
+
+  function stopManualFeed() {
+    const pane = $('#manual-video');
+    if (pane && pane._mcView) { pane._mcView.stop(); pane._mcView = null; }
+  }
+
+  /* ===================================================================
+     SETTINGS TAB — Control + Video setup cards per route
+     =================================================================== */
+
+  function renderSettingsRoutes() {
+    const wrap = $('#settings-routes');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    state.routes.forEach((r) => {
+      const v = r.video;
+      const block = document.createElement('div');
+      block.className = 'route-block';
+      block.dataset.index = r.index;
+      block.dataset.status = r.status || 'unknown';
+      block.innerHTML = `
+        <div class="route-block-head">
+          <span class="route-number">#${r.index + 1}</span>
+          <input data-field="label" type="text" value="${escapeHtml(r.label)}">
+          <label class="switch" title="Enable this camera route">
+            <input data-field="enabled" type="checkbox" ${r.enabled ? 'checked' : ''}><span></span>
+          </label>
+          <span class="route-status ${escapeHtml(r.status || 'unknown')}">${escapeHtml(r.status || 'unknown')}</span>
+        </div>
+        <div class="setup-grid">
+          <div class="setup-card">
+            <h3>🎛️ Camera Control Setup</h3>
+            <div class="field"><label>Incoming port</label><input data-field="incoming_port" type="number" min="1" max="65535" value="${r.incoming_port}"></div>
+            <div class="field"><label>Controller profile</label><select data-field="input_profile">${optionsHtml(INPUT_PROFILES, r.input_profile || DEFAULT_ROUTE.input_profile)}</select></div>
+            <div class="field"><label>Camera profile</label><select data-field="output_profile">${optionsHtml(OUTPUT_PROFILES, r.output_profile || DEFAULT_ROUTE.output_profile)}</select></div>
+            <div class="field"><label>Camera IP</label><input data-field="camera_ip" type="text" value="${escapeHtml(r.camera_ip)}"></div>
+            <div class="field"><label>Camera port</label><input data-field="camera_port" type="number" min="1" max="65535" value="${r.camera_port}"></div>
+          </div>
+          <div class="setup-card">
+            <h3>🎥 Camera Video Setup</h3>
+            <div class="field"><label>Video preview</label><label class="switch"><input data-v="enabled" type="checkbox" ${v.enabled ? 'checked' : ''}><span></span></label></div>
+            <div class="field"><label>Source type</label><select data-v="source_type">${optionsHtml(VIDEO_SOURCE_TYPES, v.source_type || 'none')}</select></div>
+            <div class="field"><label>NDI source name</label><input data-v="ndi_source_name" type="text" placeholder="e.g. CAM1 (Birddog)" value="${escapeHtml(v.ndi_source_name || '')}"></div>
+            <div class="field"><label>USB device index</label><input data-v="usb_device_index" type="number" min="0" max="15" value="${v.usb_device_index ?? 0}"></div>
+            <div class="field"><label>Resolution</label><select data-v="resolution">${optionsHtml(resolutionList(), v.resolution || '640x360')}</select></div>
+            <div class="field"><label>Frame rate</label><input data-v="frame_rate" type="number" min="1" max="30" value="${v.frame_rate ?? 8}"></div>
+            <div class="field"><label>JPEG quality</label><input data-v="jpeg_quality" type="number" min="10" max="95" value="${v.jpeg_quality ?? 60}"></div>
+          </div>
+        </div>
+        <div class="route-actions">
+          <button data-action="save-route" class="accent">Save Camera ${r.index + 1}</button>
+          <button data-action="test-route">Test</button>
+        </div>
+      `;
+      block.querySelectorAll('input, select').forEach((el) => {
+        el.addEventListener('focus', () => { state.editing = true; });
+        el.addEventListener('change', () => { state.editing = true; });
+      });
+      wrap.appendChild(block);
+    });
+  }
+
+  function readRouteBlock(block) {
+    const idx = Number(block.dataset.index);
+    const v = (field) => block.querySelector(`[data-v="${field}"]`);
+    const video = {
+      enabled: v('enabled') ? v('enabled').checked : false,
+      source_type: v('source_type') ? v('source_type').value : 'none',
+      ndi_source_name: (v('ndi_source_name')?.value || '').trim(),
+      usb_device_index: Number(v('usb_device_index')?.value || 0),
+      resolution: v('resolution')?.value || '640x360',
+      frame_rate: Number(v('frame_rate')?.value || 8),
+      jpeg_quality: Number(v('jpeg_quality')?.value || 60),
+    };
+    return {
+      enabled: block.querySelector('[data-field="enabled"]')?.checked ?? false,
+      label: (block.querySelector('[data-field="label"]')?.value || '').trim() || `Camera ${idx + 1}`,
+      incoming_port: Number(block.querySelector('[data-field="incoming_port"]')?.value),
+      input_profile: block.querySelector('[data-field="input_profile"]')?.value || DEFAULT_ROUTE.input_profile,
+      output_profile: block.querySelector('[data-field="output_profile"]')?.value || DEFAULT_ROUTE.output_profile,
+      camera_ip: (block.querySelector('[data-field="camera_ip"]')?.value || '').trim() || DEFAULT_ROUTE.camera_ip,
+      camera_port: Number(block.querySelector('[data-field="camera_port"]')?.value),
+      status: block.dataset.status || 'unknown',
+      movement_speed: state.routes[idx]?.movement_speed || 'medium',
+      preset_labels: [...(state.routes[idx]?.preset_labels || DEFAULT_ROUTE.preset_labels)],
+      video,
+    };
+  }
+
+  async function saveRouteBlock(index) {
+    const block = $(`#settings-routes .route-block[data-index="${index}"]`);
+    if (!block) return;
+    state.editing = false;
+    const payload = readRouteBlock(block);
+    await request(`/api/routes/${index}`, { method: 'PUT', body: JSON.stringify(payload) });
+    showStatus(`Saved ${payload.label} — restarting bridge…`, true);
+    try { await request('/api/bridge/restart', { method: 'POST', body: '{}' }); } catch (_) { /* non-fatal */ }
+    await loadRoutes();
+    showStatus(`Saved ${payload.label}`, true);
+  }
+
+  async function testRoute(index) {
+    try {
+      showStatus(`Testing camera ${index + 1}…`, true);
+      const result = await request(`/api/routes/${index}/test`, {
+        method: 'POST', body: JSON.stringify({ type: 'version' }),
+      });
+      alert(`${result.route_label}: ${result.ok ? 'OK' : 'FAILED'}\n${result.detail || result.result}`);
+      await loadRoutes();
+      await loadDiagnostics();
+    } catch (err) {
+      showStatus('Test failed', false);
+      alert(`Camera test failed: ${err.message}`);
+    }
+  }
+
+  /* ---------- ATEM configuration card ---------- */
+
+  function renderAtemConfig() {
+    const card = $('#settings-atem');
+    if (!card) return;
+    const a = state.atem || { enabled: false, atem_ip: '192.168.1.240', supersource_aux_output: 1, input_mapping: [1, 2, 3, 4, 5, 6, 7, 8] };
+    const mapping = (a.input_mapping && a.input_mapping.length === MAX_ROUTES) ? a.input_mapping : Array.from({ length: MAX_ROUTES }, (_, i) => i + 1);
+    const cells = mapping.map((inp, i) => `
+      <div class="mapping-cell">
+        <small>Cam ${i + 1}</small>
+        <input data-amap="${i}" type="number" min="1" max="20" value="${inp}">
+      </div>`).join('');
+    card.innerHTML = `
+      <h3>📺 ATEM Configuration</h3>
+      <p class="atem-sub">Connect a Blackmagic ATEM switcher for SuperSource 2×2 routing and PGM/PVW tally overlays.</p>
+      <div class="atem-grid">
+        <div class="field"><label>Enable ATEM</label><label class="switch"><input data-af="enabled" type="checkbox" ${a.enabled ? 'checked' : ''}><span></span></label></div>
+        <div class="field"><label>ATEM IP</label><input data-af="atem_ip" type="text" value="${escapeHtml(a.atem_ip || '')}"></div>
+        <div class="field"><label>SuperSource AUX out</label><input data-af="supersource_aux_output" type="number" min="1" max="6" value="${a.supersource_aux_output ?? 1}"></div>
+        <div class="atem-mapping">
+          <div class="field" style="grid-template-columns:130px 1fr"><label>Input mapping</label><span style="color:var(--muted);font-size:.78rem;align-self:center">route_index → ATEM SDI input (1–20). Used for PGM/PVW tally badges.</span></div>
+          <div class="mapping-grid">${cells}</div>
+        </div>
+      </div>
+      <div class="route-actions">
+        <button id="btn-save-atem" class="accent">Save ATEM Config</button>
+        <button id="btn-atem-connect">Connect</button>
+        <button id="btn-atem-disconnect">Disconnect</button>
+      </div>
+    `;
+    card.querySelectorAll('input').forEach((el) => {
+      el.addEventListener('focus', () => { state.editing = true; });
+      el.addEventListener('change', () => { state.editing = true; });
+    });
+    $('#btn-save-atem')?.addEventListener('click', () => saveAtemConfig().catch((err) => { showStatus('ATEM save failed', false); alert(`ATEM save failed: ${err.message}`); }));
+    $('#btn-atem-connect')?.addEventListener('click', () => atemConnect().catch((err) => alert(`ATEM connect failed: ${err.message}`)));
+    $('#btn-atem-disconnect')?.addEventListener('click', () => request('/api/atem/disconnect', { method: 'POST', body: '{}' }).then(() => { updateAtemPill(); }).catch(() => {}));
+  }
+
+  async function saveAtemConfig() {
+    const card = $('#settings-atem');
+    if (!card) return;
+    state.editing = false;
+    const af = (f) => card.querySelector(`[data-af="${f}"]`);
+    const input_mapping = Array.from({ length: MAX_ROUTES }, (_, i) => Number(card.querySelector(`[data-amap="${i}"]`)?.value || (i + 1)));
+    const payload = {
+      enabled: af('enabled') ? af('enabled').checked : false,
+      atem_ip: (af('atem_ip')?.value || '').trim(),
+      supersource_aux_output: Number(af('supersource_aux_output')?.value || 1),
+      input_mapping,
+    };
+    const updated = await request('/api/atem/config', { method: 'PUT', body: JSON.stringify(payload) });
+    state.atem = updated;
+    updateAtemPill();
+    showStatus('ATEM config saved', true);
+  }
+
+  async function atemConnect() {
+    try {
+      const res = await request('/api/atem/connect', { method: 'POST', body: '{}' });
+      state.atemConnected = true;
+      updateAtemPill();
+      showStatus(`ATEM connected to ${res.atem_ip}`, true);
+    } catch (err) {
+      state.atemConnected = false;
+      updateAtemPill();
+      alert(`ATEM connection failed: ${err.message}`);
+    }
+  }
+
+  /* ===================================================================
+     ATEM tally polling + LIVE/PVW overlay
+     =================================================================== */
+
+  function camToAtemInput(ci) {
+    const mapping = state.atem?.input_mapping;
+    return mapping && mapping.length === MAX_ROUTES ? mapping[ci] : null;
+  }
+
+  function applyTally() {
+    const pgm = state.tally ? state.tally.pgm : null;
+    const pvw = state.tally ? state.tally.pvw : null;
+    document.querySelectorAll('.video-pane[data-cam]').forEach((pane) => {
+      const ci = Number(pane.dataset.cam);
+      const inp = camToAtemInput(ci);
+      const onPgm = inp != null && inp === pgm;
+      const onPvw = inp != null && inp === pvw && inp !== pgm;
+      pane.classList.toggle('pgm', onPgm);
+      pane.classList.toggle('pvw', onPvw);
+    });
+  }
+
+  function clearTally() {
+    document.querySelectorAll('.video-pane[data-cam]').forEach((p) => p.classList.remove('pgm', 'pvw'));
+  }
+
+  function updateAtemPill() {
+    const pill = $('#atem-pill');
+    if (!pill) return;
+    const enabled = !!(state.atem && state.atem.enabled);
+    pill.hidden = !enabled;
+    if (!enabled) return;
+    pill.classList.toggle('on', state.atemConnected);
+    pill.textContent = state.atemConnected ? 'ATEM live' : 'ATEM connecting…';
+  }
+
+  async function pollTally() {
+    if (!(state.atem && state.atem.enabled)) {
+      state.atemConnected = false;
+      state.tally = null;
+      updateAtemPill();
+      clearTally();
+      return;
+    }
+    try {
+      const t = await request('/api/atem/tally');
+      state.atemConnected = true;
+      state.tally = { pgm: t.pgm_source, pvw: t.pvw_source };
+      updateAtemPill();
+      applyTally();
+    } catch (_) {
+      const wasConnected = state.atemConnected;
+      state.atemConnected = false;
+      state.tally = null;
+      updateAtemPill();
+      clearTally();
+      // If it was connected and dropped, try a soft reconnect.
+      if (wasConnected) { atemConnect().catch(() => {}); }
+    }
+  }
+
+  /* ===================================================================
+     Command sending (manual PTZ / lens / OSD / presets)
+     =================================================================== */
 
   function isHoldToMoveCommand(command) {
     return ['pan_left', 'pan_right', 'tilt_up', 'tilt_down', 'zoom_in', 'zoom_out', 'focus_near', 'focus_far'].includes(command);
@@ -410,6 +919,10 @@
     }
   }
 
+  /* ===================================================================
+     Bridge IP / config export-import / diagnostics
+     =================================================================== */
+
   async function saveBridgeIP() {
     const sel = $('#bridge-ip-select');
     const manual = $('#bridge-ip-manual');
@@ -420,7 +933,7 @@
       cfg.bridge_ip = ip;
       await request('/api/config', { method: 'PUT', body: JSON.stringify(cfg) });
       showStatus(`Bridge IP set to ${ip} — restarting bridge…`, true);
-      try { await request('/api/bridge/restart', { method: 'POST', body: '{}' }); } catch (_) {}
+      try { await request('/api/bridge/restart', { method: 'POST', body: '{}' }); } catch (_) { /* non-fatal */ }
       showStatus(`Bridge IP set to ${ip}`, true);
       manual.value = '';
     } catch (err) {
@@ -460,7 +973,8 @@
       $('#route-status').textContent = routeSummary || 'No routes';
       $('#event-log').textContent = (diag.event_log || []).length ? diag.event_log.join('\n') : 'No events yet.';
     } catch (err) {
-      $('#event-log').textContent = `Diagnostics unavailable: ${err.message}`;
+      const el = $('#event-log');
+      if (el) el.textContent = `Diagnostics unavailable: ${err.message}`;
     }
   }
 
@@ -470,29 +984,50 @@
     await loadDiagnostics();
   }
 
+  /* ===================================================================
+     Tab switching + feed lifecycle (connection-cap mitigation)
+     =================================================================== */
+
+  function activateTab(name) {
+    $$('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
+    $$('.tab-panel').forEach((p) => p.classList.remove('active'));
+    const panel = document.getElementById(name);
+    if (panel) panel.classList.add('active');
+    const desc = $('#page-description');
+    if (desc) desc.textContent = PAGE_DESCRIPTIONS[name] || '';
+    // Keep only the active video tab's feeds alive.
+    if (name === 'preview') {
+      renderPreview();
+    } else {
+      stopPreviewFeeds();
+    }
+    if (name === 'manual') {
+      syncManualVideo();
+    } else {
+      stopManualFeed();
+    }
+  }
+
+  /* ===================================================================
+     Event binding
+     =================================================================== */
+
   function bindEvents() {
-    $$('.tab-btn').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        $$('.tab-btn').forEach((b) => b.classList.remove('active'));
-        $$('.tab-panel').forEach((p) => p.classList.remove('active'));
-        btn.classList.add('active');
-        document.getElementById(btn.dataset.tab).classList.add('active');
-        const desc = $('#page-description');
-        if (desc) desc.textContent = PAGE_DESCRIPTIONS[btn.dataset.tab] || '';
-      });
-    });
+    $$('.tab-btn').forEach((btn) => btn.addEventListener('click', () => activateTab(btn.dataset.tab)));
 
     $$('.preset-page-btn').forEach((btn) => btn.addEventListener('click', () => {
       state.presetPage = Number(btn.dataset.page);
       renderPresets();
     }));
+    $$('.preview-page-btn').forEach((btn) => btn.addEventListener('click', () => {
+      state.previewPage = Number(btn.dataset.page);
+      renderPreview();
+    }));
+
     document.addEventListener('click', (event) => {
       const speedBtn = event.target.closest('.speed-mode-btn');
       if (!speedBtn) return;
       const routeIndex = Number($('#manual-camera-select')?.value || 0);
-      // Manual speed buttons are now immediate + persistent: site operators
-      // expect Slow/Medium/Fast to stick for this camera and to affect preset
-      // travel as well as manual pan/tilt.
       setCameraSpeed(routeIndex, speedBtn.dataset.speed, true).catch((err) => alert(`Speed change failed: ${err.message}`));
     });
     $('#btn-save-speed')?.addEventListener('click', () => {
@@ -500,26 +1035,28 @@
       const activeMode = $('.speed-mode-btn.active')?.dataset.speed || speedModeFor(routeIndex);
       setCameraSpeed(routeIndex, activeMode, true).catch((err) => alert(`Speed save failed: ${err.message}`));
     });
+
     $('#manual-camera-select')?.addEventListener('change', () => {
       const routeIndex = Number($('#manual-camera-select')?.value || 0);
       updateManualSpeedControls(speedModeFor(routeIndex));
+      syncManualVideo();
     });
+
     $('#btn-edit-presets')?.addEventListener('click', () => {
       state.presetEditMode = !state.presetEditMode;
       renderPresets();
+      renderPreview();
     });
 
     $('#btn-save-bridge-ip')?.addEventListener('click', () => saveBridgeIP());
 
-    $('#routes-table tbody')?.addEventListener('click', (event) => {
-      const button = event.target.closest('button');
+    $('#settings-routes')?.addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-action]');
       if (!button) return;
-      const row = button.closest('tr');
-      const index = Number(row.dataset.index);
-      if (button.dataset.action === 'save-route') saveRoute(index).catch((err) => {
-        showStatus('Save failed', false);
-        alert(`Save failed: ${err.message}`);
-      });
+      const block = button.closest('.route-block');
+      if (!block) return;
+      const index = Number(block.dataset.index);
+      if (button.dataset.action === 'save-route') saveRouteBlock(index).catch((err) => { showStatus('Save failed', false); alert(`Save failed: ${err.message}`); });
       if (button.dataset.action === 'test-route') testRoute(index);
     });
 
@@ -559,31 +1096,25 @@
       const preset = Number($('#save-preset-num').value);
       sendCommand(routeIndex, 'preset_save', { preset });
     });
-
     $('#btn-recall-preset')?.addEventListener('click', () => {
       const routeIndex = Number($('#manual-camera-select')?.value);
       const preset = Number($('#recall-preset-num').value);
       sendCommand(routeIndex, 'preset_recall', { preset });
     });
 
-    $('#btn-export')?.addEventListener('click', () => exportConfig().catch((err) => {
-      showStatus('Export failed', false);
-      alert(`Export failed: ${err.message}`);
-    }));
+    $('#btn-export')?.addEventListener('click', () => exportConfig().catch((err) => { showStatus('Export failed', false); alert(`Export failed: ${err.message}`); }));
     $('#btn-import')?.addEventListener('click', () => $('#import-file')?.click());
     $('#import-file')?.addEventListener('change', (event) => {
       const file = event.target.files && event.target.files[0];
       if (!file) return;
-      importConfig(file).catch((err) => {
-        showStatus('Import failed', false);
-        alert(`Import failed: ${err.message}`);
-      }).finally(() => { event.target.value = ''; });
+      importConfig(file).catch((err) => { showStatus('Import failed', false); alert(`Import failed: ${err.message}`); }).finally(() => { event.target.value = ''; });
     });
-    $('#btn-reset-routes')?.addEventListener('click', () => resetDiagnostics().catch((err) => {
-      showStatus('Reset failed', false);
-      alert(`Reset failed: ${err.message}`);
-    }));
+    $('#btn-reset-routes')?.addEventListener('click', () => resetDiagnostics().catch((err) => { showStatus('Reset failed', false); alert(`Reset failed: ${err.message}`); }));
   }
+
+  /* ===================================================================
+     Init
+     =================================================================== */
 
   bindEvents();
   loadNetworkInterfaces();
@@ -599,4 +1130,5 @@
     if (settingsActive) return;
     loadRoutes();
   }, 15000);
+  setInterval(pollTally, 500);
 })();
