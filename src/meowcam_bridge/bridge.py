@@ -176,6 +176,13 @@ class BridgeCore:
         self._route_input_profs: dict[int, InputProfile] = {}  # cached input profiles
         self._tasks: list[asyncio.Task[Any]] = []
         self._running = False
+        # Per-route command locks: prevent concurrent VISCA commands to the
+        # same camera (avoids sequence-number collisions and crash cascades).
+        # Each route gets its own lock, so Camera 2 can receive commands
+        # while Camera 1 is still moving.
+        self._route_locks: dict[int, asyncio.Lock] = {}
+        self._route_busy: dict[int, float] = {}  # route_index -> monotonic timestamp
+        self._lock_timeout = 15.0  # auto-release lock after 15s
 
     # ------------------------------------------------------------------
     # Route state
@@ -186,6 +193,28 @@ class BridgeCore:
         if route_index not in self._route_states:
             self._route_states[route_index] = {}
         return self._route_states[route_index]
+
+    def _get_route_lock(self, route_index: int) -> asyncio.Lock:
+        """Return (and create if needed) the per-route command lock."""
+        if route_index not in self._route_locks:
+            self._route_locks[route_index] = asyncio.Lock()
+        return self._route_locks[route_index]
+
+    def is_route_busy(self, route_index: int) -> bool:
+        """Check if a route is currently processing a command."""
+        import time
+        ts = self._route_busy.get(route_index)
+        if ts is None:
+            return False
+        # Auto-expire stale busy state after timeout
+        if time.monotonic() - ts > self._lock_timeout:
+            self._route_busy.pop(route_index, None)
+            return False
+        return True
+
+    def _release_busy(self, route_index: int) -> None:
+        """Mark a route as no longer busy."""
+        self._route_busy.pop(route_index, None)
 
     # ------------------------------------------------------------------
     # Diagnostics
@@ -556,6 +585,7 @@ class BridgeCore:
                 pass
             route_state["sony_seq"] = 0
             self._pending_replies.get(idx, {}).clear()
+            self._release_busy(idx)
             return
 
         # Find the pending reply mapping.
@@ -607,6 +637,9 @@ class BridgeCore:
             "payload_hex": payload.hex(),
             "camera_seq": cam_seq,
         }
+        # Release busy state when command completes
+        if is_completion_or_error:
+            self._release_busy(idx)
 
     # ------------------------------------------------------------------
     # Controller listener task (two-socket mode)
@@ -764,6 +797,7 @@ class BridgeCore:
                 pass
             route_state["sony_seq"] = 0
             self._pending_replies.get(idx, {}).clear()
+            self._release_busy(idx)
             return
 
         # ACK vs Completion handling. Internal helper commands (e.g.
@@ -828,6 +862,9 @@ class BridgeCore:
             "payload_hex": payload.hex(),
             "camera_seq": cam_seq,
         }
+        # Release busy state when command completes
+        if is_completion_or_error:
+            self._release_busy(idx)
 
     @staticmethod
     def _extract_seq(packet: bytes) -> int | None:
@@ -941,12 +978,22 @@ class BridgeCore:
         Builds the correct VISCA payload, sends it via the camera socket,
         and returns what was sent. If the bridge is not running, falls back
         to building the payload without transmitting.
+
+        Uses per-route busy tracking to prevent concurrent commands to the
+        same camera (which causes VISCA sequence collisions and crashes).
+        Returns result="busy" if the route is already processing a command.
+        Different cameras (routes) are independent — Camera 2 can receive
+        commands while Camera 1 is still moving.
         """
         if not (0 <= route_index < len(self.config.routes)):
             return CommandResult(ok=False, result="error", detail="route index out of range")
         route = self.config.routes[route_index]
         if not route.enabled:
             return CommandResult(ok=False, result="error", detail="route is disabled")
+
+        # Check if route is busy — return immediately so the UI can show "please wait"
+        if self.is_route_busy(route_index):
+            return CommandResult(ok=False, result="busy", detail="camera is still moving — please wait for confirmation")
 
         profiles = self._resolve_profiles(route)
         output_prof = profiles[1] if profiles else None
@@ -971,6 +1018,9 @@ class BridgeCore:
             if profiles is not None:
                 input_prof, output_prof_live = profiles
                 route_state = self.route_state(route_index)
+                # Mark route as busy BEFORE sending
+                import time
+                self._route_busy[route_index] = time.monotonic()
                 if command == "preset_recall":
                     asyncio.create_task(
                         self._inject_preset_speed_if_needed(

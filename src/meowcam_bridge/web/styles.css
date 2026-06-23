@@ -374,3 +374,28 @@ footer { margin-top: auto; padding: 0; color: var(--muted); font-size: .78rem; l
   font-weight: 600;
 }
 
+
+
+/* Busy preset buttons — camera still moving */
+.preset-btn.busy,
+.preset-btn-sm.busy {
+  opacity: 0.45;
+  cursor: wait;
+  pointer-events: none;
+  animation: pulse-busy 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-busy {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 0.7; }
+}
+
+.preset-btn.busy::after,
+.preset-btn-sm.busy::after {
+  content: '⏳';
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  font-size: 10px;
+  opacity: 0.8;
+}

@@ -472,10 +472,14 @@ async def restart_bridge() -> dict:
 
 @app.get("/api/bridge/status")
 async def bridge_status() -> dict:
-    """Check if the UDP bridge is running."""
+    """Check if the UDP bridge is running and which routes are busy."""
     if _bridge is None:
         return {"running": False}
-    return {"running": _bridge._running, "routes": len(_bridge.config.routes)}
+    busy_routes = {}
+    for i in range(len(_bridge.config.routes)):
+        if _bridge.is_route_busy(i):
+            busy_routes[i] = True
+    return {"running": _bridge._running, "routes": len(_bridge.config.routes), "busy": busy_routes}
 
 
 # ---------------------------------------------------------------------------

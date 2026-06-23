@@ -1083,7 +1083,14 @@
   async function sendCommand(routeIndex, command, args = {}) {
     try {
       if (routeIndex === null || Number.isNaN(routeIndex)) return alert('Select a camera first.');
+      // Check if this route is busy
+      if (routeBusy[routeIndex]) {
+        showStatus(`${state.routes[routeIndex]?.label || 'Camera'} is still moving — please wait for confirmation`, false);
+        return;
+      }
       showStatus(`Sending ${command}…`, true);
+      routeBusy[routeIndex] = true;
+      updatePresetButtonsBusy();
       const result = await request('/api/command', {
         method: 'POST', body: JSON.stringify({ route_index: routeIndex, command, args }),
       });
@@ -1093,8 +1100,20 @@
       await loadDiagnostics();
       if (!result.ok) alert(`${command} failed: ${result.detail || 'unknown error'}`);
     } catch (err) {
-      showStatus('Command failed', false);
-      alert(`Command failed: ${err.message}`);
+      const errMsg = String(err.message || '');
+      if (errMsg.includes('409') || errMsg.includes('busy')) {
+        showStatus(`${state.routes[routeIndex]?.label || 'Camera'} is still moving — please wait for confirmation`, false);
+      } else {
+        showStatus('Command failed', false);
+        alert(`Command failed: ${err.message}`);
+      }
+    } finally {
+      // Release busy state after a delay (camera completion reply will clear it server-side,
+      // but we also clear it client-side after a timeout as safety)
+      setTimeout(() => {
+        routeBusy[routeIndex] = false;
+        updatePresetButtonsBusy();
+      }, command === 'preset_recall' ? 8000 : 2000);
     }
   }
 
