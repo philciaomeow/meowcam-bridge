@@ -347,22 +347,28 @@ async def usb_devices() -> dict:
     devices = []
 
     if sys.platform == "win32":
-        # Windows: probe indices 0-9 with cv2.VideoCapture
+        # Windows: use pygrabber for friendly DirectShow device names,
+        # then probe cv2.VideoCapture for resolution info.
+        friendly_names = []
+        try:
+            from pygrabber.dshow_graph import FilterGraph
+            graph = FilterGraph()
+            friendly_names = graph.get_input_devices()
+        except Exception:
+            pass
+
         try:
             import cv2
             for idx in range(10):
-                cap = cv2.VideoCapture(idx)
+                cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW)
                 if cap is not None and cap.isOpened():
                     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
                     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
-                    # Try to get a friendly name
-                    name = f"USB Device {idx}"
-                    try:
-                        backend_name = cap.getBackendName() if hasattr(cap, 'getBackendName') else ""
-                        if backend_name:
-                            name = f"Device {idx} ({backend_name})"
-                    except Exception:
-                        pass
+                    # Use pygrabber name if available, else fallback
+                    if idx < len(friendly_names):
+                        name = friendly_names[idx]
+                    else:
+                        name = f"Device {idx}"
                     devices.append({
                         "index": idx,
                         "label": name,
@@ -374,7 +380,6 @@ async def usb_devices() -> dict:
                 else:
                     if cap is not None:
                         cap.release()
-                    # Stop after first few consecutive failures past index 0
                     if idx > 2:
                         break
         except ImportError:
@@ -388,9 +393,26 @@ async def usb_devices() -> dict:
                 # Even minors are capture devices, odd are metadata
                 if minor % 2 == 0:
                     index = minor // 2
+                    # Try to get a friendly name via v4l2-ctl
+                    name = f"Device {index}"
+                    try:
+                        import subprocess as _sp
+                        r = _sp.run(
+                            ["v4l2-ctl", "--device", path, "--info"],
+                            capture_output=True, text=True, timeout=2
+                        )
+                        for line in r.stdout.splitlines():
+                            if "Driver" in line and "Card type" in line:
+                                # Usually: "Card type      : USB3.0 Capture"
+                                pass
+                            if "Card type" in line:
+                                name = line.split(":", 1)[1].strip()
+                                break
+                    except Exception:
+                        pass
                     devices.append({
                         "index": index,
-                        "label": f"Device {index}",
+                        "label": name,
                         "path": path,
                     })
             except Exception:
@@ -665,4 +687,6 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
 

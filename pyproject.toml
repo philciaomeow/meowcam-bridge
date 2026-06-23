@@ -36,6 +36,7 @@ dependencies = [
 video = [
     "opencv-python-headless>=4.8",
     "ndi-python>=5.0",
+    'pygrabber>=0.2; platform_system == "Windows"',
 ]
 tray = [
     "pystray>=0.19",
