@@ -4,17 +4,17 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "meowcam-bridge"
-version = "0.1.1"
-description = "Standalone onsite PTZ controller-to-camera bridge"
+version = "0.2.0"
+description = "Standalone onsite PTZ controller-to-camera bridge with NDI/USB video preview"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [
     {name = "Meow Team"},
 ]
-keywords = ["ptz", "visca", "bridge", "sony", "ptzoptics"]
+keywords = ["ptz", "visca", "bridge", "sony", "ptzoptics", "ndi", "video"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: End Users/Desktop",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
@@ -29,16 +29,29 @@ dependencies = [
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
     "PyATEMMax>=1.0b9",
+    "numpy>=1.24",
 ]
 
 [project.optional-dependencies]
+video = [
+    "opencv-python-headless>=4.8",
+    "ndi-python>=5.0",
+]
+tray = [
+    "pystray>=0.19",
+    "Pillow>=10.0",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "httpx>=0.27",
+    "opencv-python-headless>=4.8",
+    "ndi-python>=5.0",
 ]
 build = [
     "pyinstaller>=6.0",
+    "pystray>=0.19",
+    "Pillow>=10.0",
 ]
 
 [project.scripts]

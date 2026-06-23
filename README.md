@@ -13,11 +13,22 @@ Made by the **meow team** as a MeowWorks onsite starter app.
 - Receives camera replies and maps them back to the controller.
 - Injects **preset drive speed** before preset recalls so Slow/Medium/Fast affects preset travel, not just manual pan/tilt.
 - Translates controller OSD Enter/Back to the direct BRC-H900 menu commands that actually work.
-- Provides a local web UI with presets, manual control, diagnostics, and settings.
+- **Captures live video** from NDI sources or USB/HDMI capture cards for in-app preview.
+- **ATEM switcher integration** for PGM/PVW tally indicators and SuperSource quadrant routing.
+- Provides a local web UI with live preview, presets, manual control, diagnostics, and settings.
 
-## Why it exists
+## What's new in v0.2
 
-Sony BRC-H900 cameras with BRBK-IP10 IP cards require the controller to bind to UDP source port 52381 — the camera replies to destination port 52381, not the sender's ephemeral port. Generic controllers (and PTZOptics PT-JOY-G4 in Sony VISCA mode, which locks port 52381) can't handle multiple cameras this way. This bridge sits between the controller and cameras, handling port binding, sequence rewriting, OSD translation, and preset speed injection so everything just works.
+| Feature | Details |
+|---------|---------|
+| **NDI video capture** | Receive NDI streams from network sources (ATEM, OBS, vMix, etc.) with auto-discovery |
+| **USB/HDMI capture** | Connect USB capture cards (Blackmagic, Elgato, etc.) for direct camera feeds |
+| **Shared USB device** | Multiple camera routes share ONE capture device with different crop regions — e.g. ATEM multiview split into 4 quadrants |
+| **Crop presets** | Quick-select buttons: Full Frame, Top-Left, Top-Right, Bottom-Left, Bottom-Right, or Custom |
+| **Live preview grid** | 2×2 camera preview grid with click-to-enlarge, showing real video feeds |
+| **LIVE indicator** | Red border for PGM (program), green border for PVW (preview) via ATEM tally |
+| **ATEM integration** | SuperSource 2×2 quadrant mapping, PGM/PVW tally, AUX routing |
+| **System tray app** | Windows tray icon with "Open Control Surface" and "Close Server" — no command window |
 
 ## Key features
 
@@ -27,14 +38,14 @@ Sony BRC-H900 cameras with BRBK-IP10 IP cards require the controller to bind to 
 | **Controller profiles** | PT-JOY-G4 VISCA(UDP) with custom ports, or Sony VISCA(UDP) on fixed 52381 |
 | **Preset speed** | Slow/Medium/Fast per camera, applied to both manual movement and preset recall |
 | **OSD menu** | Controller Enter/Back translated to working BRC-H900 direct menu commands |
-| **Web UI** | Touch-friendly preset quadrants, manual PTZ/lens/OSD controls, diagnostics, settings |
+| **Web UI** | Live preview, touch-friendly preset quadrants, manual PTZ/lens/OSD controls, diagnostics, settings |
 | **Standalone** | No internet, no cloud, no Docker. Just Python and a browser |
-| **Windows launcher** | `launch.bat` for double-click startup, or system tray app (coming in v0.2) |
+| **Windows launcher** | Double-click `MeowCamBridge.exe` — system tray app with loading screen, no Python install needed |
 
 ## Quick start (development)
 
 ```bash
-# Install (editable dev install)
+# Install (editable dev install with video deps)
 pip install -e ".[dev]"
 
 # Run with default config (auto-created)
@@ -49,13 +60,44 @@ Open `http://localhost:8080` in a browser.
 ## Quick start (onsite / Windows)
 
 1. Unzip the MeowCam Bridge folder.
-2. Double-click `launch.bat`.
-3. Allow through Windows Firewall when prompted.
-4. Browser opens to `http://localhost:8080`.
-5. Go to **Settings**, enter your camera IPs, click **Save**.
-6. Go to **Manual Control** or **Presets** to test.
+2. Double-click `MeowCamBridge.exe`.
+3. A loading screen appears, then the system tray icon shows "MeowCam Bridge".
+4. Allow through Windows Firewall when prompted.
+5. Browser opens to `http://localhost:8080`.
+6. Go to **Settings**, enter your camera IPs, click **Save**.
+7. Go to **Preview** to see live video, or **Presets** / **Manual Control** to operate cameras.
 
 See `SETUP.md` for the full onsite guide.
+
+## Video sources
+
+MeowCam Bridge supports three video source types per camera route:
+
+| Source | Description | Linux | Windows |
+|--------|-------------|-------|---------|
+| **NDI** | Receive NDI streams from ATEM, OBS, vMix, NewTek Connect | ✅ (needs avahi-daemon + mDNS route) | ✅ (native mDNS — no workaround needed) |
+| **USB Capture** | HDMI capture cards via USB (Blackmagic, Elgato, etc.) | ✅ (V4L2 backend) | ✅ (DirectShow/MediaFoundation backend) |
+| **Test Pattern** | Generated colour bars / gradient for testing | ✅ | ✅ |
+
+### Shared USB capture
+
+Multiple camera routes can share ONE USB capture device with different crop regions. This is ideal for splitting an ATEM multiview output into individual camera previews:
+
+```
+ATEM Multiview (USB capture)
+├── Camera 1: Top-Left quadrant crop (0, 0, 0.5, 0.5)
+├── Camera 2: Top-Right quadrant crop (0.5, 0, 0.5, 0.5)
+├── Camera 3: Bottom-Left quadrant crop (0, 0.5, 0.5, 0.5)
+└── Camera 4: Bottom-Right quadrant crop (0.5, 0.5, 0.5, 0.5)
+```
+
+### Crop/Region presets
+
+Each camera has quick-select crop buttons:
+
+- **Full Frame** — entire video source
+- **Top-Left / Top-Right / Bottom-Left / Bottom-Right** — quarter-crops for multiview splitting
+- **Custom** — manual crop region (future: visual drag-to-select)
 
 ## Architecture
 
@@ -70,12 +112,21 @@ Controller (UDP)  →  Bridge Listener (per-route port)
                          ↓
 Camera (UDP 52381)  ←  Shared socket (source port 52381)
 Camera replies (UDP 65000) → Shared socket → Route by source IP → Controller
+
+Video Source (NDI/USB)  →  Video Manager (shared device pool + crop)
+                         ↓
+                  MJPEG Stream → Web UI Preview Grid
+
+ATEM Switcher (TCP)  →  ATEM Module (tally + SuperSource)
+                         ↓
+                  PGM/PVW state → Web UI LIVE indicators
 ```
 
 - **Profiles** are separate from core routing. Input profiles decode controller packets; output profiles encode camera packets. New profiles can be added without changing the bridge core.
-- **Routes** define up to 8 camera mappings: incoming port, controller profile, camera IP/port, camera profile.
+- **Routes** define up to 8 camera mappings: incoming port, controller profile, camera IP/port, camera profile, and video source config.
 - **Sequence numbers** are managed per-route so the camera sees clean incrementing values independent of whatever the controller sends.
 - **Preset speed** is injected as a BRC-H900 PRESET DRIVE SPEED command (`81 01 7E 01 0B pp qq FF`) before each preset recall. Internal command replies are consumed by the bridge, not forwarded to the controller.
+- **Video Manager** manages video sources per-route, with a shared device pool for USB capture so multiple routes can read from one physical device simultaneously.
 - **Web UI** is static HTML/CSS/JS served by FastAPI. No build step, no bundler, no internet CDN.
 
 ## Socket modes
@@ -93,15 +144,22 @@ meowcam-bridge/
   README.md
   SETUP.md              # Onsite operator guide
   PACKAGING.md          # Developer packaging guide
+  build_windows.py      # One-command Windows .exe build
   launch.bat            # Windows double-click launcher
   launch.sh             # Linux/macOS launcher
-  meowcam-bridge.spec   # PyInstaller spec (for future .exe packaging)
+  meowcam-bridge.spec   # PyInstaller spec (tray app + NDI DLLs + OpenCV)
+  hooks/
+    runtime_hook_ndi.py # NDI DLL runtime path hook
   src/meowcam_bridge/
     __init__.py
     __main__.py          # python -m meowcam_bridge entry point
     app.py               # FastAPI + uvicorn entry point
     config.py            # Pydantic models, JSON load/save
-    bridge.py            # Async UDP relay, route state, diagnostics, command dispatch, preset speed
+    bridge.py            # Async UDP relay, route state, diagnostics, command dispatch
+    video.py             # Video sources: NDI, USB (shared), test pattern + crop
+    video_manager.py     # Per-route video source lifecycle + config change detection
+    atem.py              # ATEM switcher integration (SuperSource, tally)
+    tray_app.py          # Windows system tray app (pystray + tkinter loading)
     protocols/
       base.py                    # InputProfile / OutputProfile ABCs
       visca.py                   # VISCA framing utilities
@@ -120,6 +178,7 @@ meowcam-bridge/
     test_bridge_mapping.py
     test_input_ptzoptics.py
     test_api.py
+    test_video.py
   examples/
     config.example.json
 ```
@@ -134,8 +193,9 @@ Config is a JSON file (auto-created as `meowcam-bridge.json` if missing). Up to 
 - `input_profile` — controller profile name
 - `output_profile` — camera profile name
 - `camera_ip`, `camera_port` — target camera address
-- `movement_speed` — `slow`, `medium`, or `fast` (persists to config, affects both manual and preset travel)
+- `movement_speed` — `slow`, `medium`, or `fast` (persists to config)
 - `preset_labels` — up to 16 preset names
+- `video` — video source config: `enabled`, `source_type` (`ndi`/`usb`/`testpattern`), `source_name` (NDI), `usb_device_index` (USB), `resolution`, crop fields (`crop_x`/`crop_y`/`crop_w`/`crop_h` as 0.0–1.0 fractions)
 
 ## Profiles
 
@@ -172,7 +232,7 @@ Key commands confirmed by live testing against BRC-H900 with BRBK-IP10 firmware 
 ## Versioning
 
 - Version lives in `pyproject.toml` and `src/meowcam_bridge/__init__.py`.
-- Git tags: `v0.1.0`, `v0.2.0`, etc.
+- Git tags: `v0.1.0`, `v0.1.1`, `v0.2.0`, etc.
 - Packaged releases: GitHub Releases with `.zip` of build output.
 
 ## License

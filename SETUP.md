@@ -9,17 +9,20 @@
 - PTZOptics PT-JOY-G4 controller.
 - Up to 8 Sony BRC-H900 cameras with BRBK-IP10 IP cards.
 - Network cables / switch connecting everything together.
+- Optional: USB HDMI capture card (e.g. Blackmagic, Elgato) for live video preview.
+- Optional: ATEM switcher on the network for tally indicators.
 
 ## Quick start (5 minutes)
 
 1. **Unzip** the MeowCam Bridge folder to your Desktop or Documents.
-2. **Double-click** `launch.bat` (Windows).
-3. If Windows Firewall asks, click **Allow**.
-4. Your web browser will open to `http://localhost:8080`.
-5. Go to the **Settings** tab and enter your camera IPs.
-6. Click **Save**, then go to **Manual Control** to test.
+2. **Double-click** `MeowCamBridge.exe`.
+3. A loading screen appears briefly, then a system tray icon shows "MeowCam Bridge".
+4. If Windows Firewall asks, click **Allow**.
+5. Your web browser will open to `http://localhost:8080`.
+6. Go to the **Settings** tab and enter your camera IPs.
+7. Click **Save**, then go to **Preview** to see live video or **Manual Control** to test.
 
-> **Coming in v0.2:** A system tray app with a GUI loading screen — no command window, just a tray icon with "Open Control Surface" and "Close Server" options. Python will be bundled, so no separate install needed.
+> **No Python installation needed.** The `.exe` bundles everything.
 
 ## Network setup
 
@@ -65,10 +68,57 @@ The controller sends VISCA commands to the **bridge PC's IP address**, not direc
 
 > **Tip:** Find your bridge PC's IP address by opening Command Prompt and typing `ipconfig`. Look for "IPv4 Address" under your active network adapter.
 
+## Video setup (optional)
+
+### NDI sources
+
+If you have an ATEM switcher, OBS, or other NDI sender on the network:
+
+1. Go to **Settings → Camera Video** for the camera you want to configure.
+2. Set **Source Type** to **NDI Stream**.
+3. Click **Discover Sources** — a dropdown will appear with available NDI streams.
+4. Select the NDI source for that camera.
+5. Choose a **Crop/Region** preset (Full Frame, or a quadrant if splitting a multiview).
+6. Click **Save**.
+
+### USB / HDMI capture cards
+
+If you have a USB capture card (Blackmagic, Elgato, etc.) connected to the bridge PC:
+
+1. Go to **Settings → Camera Video** for the camera you want to configure.
+2. Set **Source Type** to **USB / HDMI Capture**.
+3. A **device dropdown** will appear showing available capture cards.
+4. Select your capture device.
+5. Choose a **Crop/Region** preset.
+6. Click **Save**.
+
+> **Shared USB:** Multiple cameras can share ONE capture device. For example, if your ATEM outputs a 2×2 multiview over HDMI to a single capture card, set Camera 1 to Top-Left, Camera 2 to Top-Right, Camera 3 to Bottom-Left, and Camera 4 to Bottom-Right. The bridge reads one feed and crops each camera's region.
+
+### Crop/Region presets
+
+| Preset | What it shows |
+|--------|---------------|
+| **Full Frame** 🖼️ | Entire video source |
+| **Top-Left** ↖️ | Top-left quarter |
+| **Top-Right** ↗️ | Top-right quarter |
+| **Bottom-Left** ↙️ | Bottom-left quarter |
+| **Bottom-Right** ↘️ | Bottom-right quarter |
+| **Custom** ⚙️ | Manual crop region (advanced) |
+
+### Output Resolution
+
+The **Output Resolution (preview size)** setting controls how large each preview thumbnail is in the web UI. Lower resolutions use less bandwidth and load faster. This does not affect the camera or video source quality — only the preview display size.
+
 ## The web UI tabs
+
+### Preview
+- Live 2×2 grid showing real video feeds from each camera.
+- Click any camera to enlarge it.
+- Red border = camera is on PGM (live program), green border = PVW (preview) — requires ATEM integration.
 
 ### Presets
 - Four cameras shown at a time in large touch-friendly cards.
+- Small video preview thumbnail at the top of each column.
 - Click a preset button to move the camera to a saved position.
 - **Slow / Medium / Fast** speed buttons per camera card — these control both manual movement speed AND preset travel speed.
 - Preset labels can be renamed via **Edit preset names** mode.
@@ -78,7 +128,6 @@ The controller sends VISCA commands to the **bridge PC's IP address**, not direc
 ### Manual Control
 - Select a camera from the dropdown.
 - **Slow / Medium / Fast** buttons set the speed mode (saved to this camera automatically).
-- **Save speed for this camera** button confirms the current speed selection.
 - Pan/tilt buttons are **hold-to-move, release-to-stop** (like a real joystick).
 - Use **Zoom In / Zoom Out**, **Focus Near / Far**, or **Autofocus Toggle**.
 - **OSD Menu** buttons: Open, Enter, Back, Close.
@@ -87,35 +136,34 @@ The controller sends VISCA commands to the **bridge PC's IP address**, not direc
 ### Diagnostics
 - See the last command received and last camera reply.
 - Check per-camera status (OK, Error, Unknown).
-- View packet logs for troubleshooting — shows controller RX, camera TX, camera replies, and internal preset-speed commands.
+- View packet logs for troubleshooting.
 - Reset route states if needed.
 
 ### Settings
-- Enable/disable cameras.
-- Set camera labels (e.g. "Main Stage", "Presenter").
-- Enter camera IP addresses and ports.
-- Choose controller input profile and camera output profile per route.
-- Set the bridge IP address (which network interface to bind to).
+- **Camera Control:** Enable/disable cameras, labels, IP addresses, ports, profiles.
+- **Camera Video:** Source type (NDI/USB/Test Pattern), NDI source discovery, USB device selection, crop/region presets, output resolution.
+- **ATEM:** ATEM switcher IP, SuperSource configuration, tally settings.
 - Import/export your configuration as a JSON file.
 
 ## Troubleshooting
 
 | Problem | What to check |
 |---------|---------------|
-| Browser says "This site can't be reached" | Make sure `launch.bat` is still running. Check the console window or system tray icon. |
+| Browser says "This site can't be reached" | Make sure `MeowCamBridge.exe` is still running. Check the system tray icon. |
 | Camera doesn't move | Check the camera IP in Settings. Try the **Test** button next to the camera. |
 | Controller has no response | Make sure the controller is set to the bridge PC's IP, not the camera's IP. Check the controller profile is set to VISCA(UDP), not Sony VISCA(UDP). |
-| Windows Firewall blocked it | Go to Control Panel > Windows Defender Firewall > Allow an app. Find Python (or the MeowCam Bridge exe) and allow it. |
+| Windows Firewall blocked it | Go to Control Panel > Windows Defender Firewall > Allow an app. Find MeowCamBridge.exe and allow it. |
 | Only some cameras work | Check that each camera slot on the controller uses a different port (52382–52389). Make sure each camera is enabled in Settings. |
-| Preset speed doesn't change | Make sure you've selected Slow/Medium/Fast for that camera in the Presets tab or Manual Control. The speed is saved per-camera. |
+| Preset speed doesn't change | Make sure you've selected Slow/Medium/Fast for that camera in the Presets tab or Manual Control. |
+| No video in preview | Check that the video source is enabled in Settings → Camera Video. For NDI, click Discover Sources. For USB, check the capture card is connected. |
+| NDI sources not found | Ensure the NDI sender (ATEM, OBS) is on the same network. On Windows, NDI uses native mDNS — no extra setup needed. |
+| USB capture card not detected | Check the device appears in the dropdown. Try unplugging and replugging. Ensure drivers are installed. |
 | OSD Enter doesn't work from controller | The bridge translates controller OSD Enter automatically. If it still doesn't work, try the web UI OSD Enter button in Manual Control. |
 
 ## Shutting down
 
 - Close the browser tab anytime.
-- To stop the bridge:
-  - **v0.1:** Click the console window and press **Ctrl+C**, then close the window.
-  - **v0.2 (coming):** Right-click the system tray icon and select **Close Server**.
+- To stop the bridge: **Right-click the system tray icon** and select **Close Server**.
 
 ## Getting help
 

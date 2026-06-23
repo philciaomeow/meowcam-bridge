@@ -11,111 +11,102 @@
 - Non-technical operator can start the app with a double-click.
 - System tray icon with "Open Control Surface" and "Close Server" options.
 - GUI loading screen on startup (no scary command window).
-- **Build process is repeatable**: one command rebuilds after code changes, no manual recreation.
+- **Build process is repeatable**: one command rebuilds after code changes.
 
-## Current state (v0.1.0)
+## Current state (v0.2.0)
 
 - Python 3.11+ source package with `pyproject.toml`.
 - FastAPI + uvicorn local web UI on `http://localhost:8080`.
 - Config auto-created as JSON in working directory (`meowcam-bridge.json`).
-- All core features implemented and tested (104 tests passing):
-  - UDP bridge core with shared camera socket for multi-camera.
-  - PTZOptics PT-JOY-G4 input profiles (Sony VISCA UDP and generic VISCA UDP).
-  - Sony BRC-H900/BRBK-IP10 output profile with OSD translation.
-  - Preset drive speed injection before preset recalls.
-  - Web UI: presets (4-camera quadrants), manual control, diagnostics, settings.
-  - Per-camera movement speed (slow/medium/fast) persisted to config.
-  - `launch.bat` for Windows double-click startup.
-  - `launch.sh` for Linux/macOS.
+- 169 tests passing.
+- **All v0.2 features implemented:**
+  - NDI video capture with discovery endpoint
+  - USB/HDMI capture card support with device dropdown
+  - Shared USB device pool (multiple routes, one device)
+  - Crop/region presets (Full Frame, TL, TR, BL, BR, Custom)
+  - ATEM switcher integration (SuperSource, tally)
+  - System tray app (pystray + tkinter loading screen)
+  - Live preview grid with PGM/PVW tally indicators
 
-## v0.2 packaging plan — System tray Windows app + NDI / OpenCV / ATEM
-
-### New runtime dependencies (v0.2)
+## Runtime dependencies (v0.2)
 
 | Package | Purpose | Bundled by PyInstaller? | Optional? |
 |---------|---------|------------------------|-----------|
-| `ndi-python` | NDI video receive (network sources) | Yes — C extension + runtime DLL | Yes — bridge falls back to test pattern |
+| `fastapi` + `uvicorn` | Web server | Yes | No (core) |
+| `pydantic` | Config models | Yes | No (core) |
+| `PyATEMMax` | ATEM switcher control | Yes — pure Python | Yes — bridge works without ATEM |
+| `numpy` | Frame handling | Yes | Required by video features |
 | `opencv-python-headless` | USB/HDMI capture, JPEG encoding, test pattern | Yes — large binary wheels | Yes — test pattern works without it |
-| `PyATEMMax` | ATEM switcher control (SuperSource, tally) | Yes — pure Python | Yes — bridge works without ATEM |
-| `numpy` | Required by OpenCV and NDI frame handling | Yes | Yes (via above) |
+| `ndi-python` | NDI video receive | Yes — C extension + runtime DLL | Yes — bridge falls back to test pattern |
+| `pystray` + `Pillow` | System tray app (Windows) | Yes | Yes — only needed for tray mode |
 
-All three are **optional at runtime** — the bridge starts and functions fully as a PTZ controller without any of them. They are only needed when the corresponding features (NDI video, USB capture, ATEM integration) are enabled in the config.
+All video/ATEM deps are **optional at runtime** — the bridge starts and functions fully as a PTZ controller without any of them. They are only needed when the corresponding features are enabled in the config.
 
-### PyInstaller bundling specifics
+## PyInstaller bundling specifics
 
-#### NDI runtime DLL
+### NDI runtime DLL
 
-The `ndi-python` wheel bundles `Processing.NDI.Lib.x64.dll` (or equivalent platform DLL). PyInstaller does **not** automatically detect this non-Python DLL, so the spec and build script handle it:
+The `ndi-python` wheel bundles `Processing.NDI.Lib.x64.dll`. PyInstaller does **not** automatically detect this non-Python DLL:
 
 1. **Auto-detection** in `meowcam-bridge.spec`: searches the `NDIlib` package directory for `Processing.NDI.Lib*.dll` and adds them to `binaries=`.
 2. **Runtime hook** (`hooks/runtime_hook_ndi.py`): calls `os.add_dll_directory(sys._MEIPASS)` so the bundled DLL is found at runtime in onedir mode.
 3. **Fallback** in `video_manager.py`: if `NDIlib` import fails, the route falls back to `TestPatternSource`.
 
-#### OpenCV data files
+### OpenCV data files
 
 OpenCV ships with haarcascade XML files and FFmpeg DLLs. The spec auto-detects:
 - `cv2/data/` directory → bundled as `cv2/data`
 - Any `.dll` files in the `cv2` package root → bundled at top level
 
-#### PyATEMMax
+### PyATEMMax
 
-Pure Python — no special binary handling needed. Added to `hiddenimports` in the spec to ensure PyInstaller collects all submodules (`ATEMProtocolEnums`, etc.).
+Pure Python — no special binary handling needed. Added to `hiddenimports` in the spec.
 
-### Approach: PyInstaller + `pystray` + `tkinter` loading screen
+## Approach: PyInstaller + `pystray` + `tkinter` loading screen
 
 | Component | Choice | Why |
 |-----------|--------|-----|
-| Python bundling | PyInstaller `--onedir` | Bundles Python interpreter + all deps into a folder. No separate Python install needed. |
-| System tray | `pystray` + `Pillow` | Lightweight, pure-Python, works on Windows. Shows tray icon with menu. |
-| Loading screen | `tkinter` (built-in) | No extra deps. Simple "Starting MeowCam Bridge…" window that auto-closes when the server is ready. |
-| Server process | `subprocess` of bundled `meowcam-bridge.exe` | The tray app spawns the server as a child process. Killing the tray kills the server. |
-| Browser open | `webbrowser.open()` | Opens default browser to `http://localhost:8080` when "Open Control Surface" is clicked. |
+| Python bundling | PyInstaller `--onedir` | Bundles Python interpreter + all deps into a folder. |
+| System tray | `pystray` + `Pillow` | Lightweight, pure-Python, works on Windows. |
+| Loading screen | `tkinter` (built-in) | No extra deps. "Starting MeowCam Bridge…" window, auto-closes when server ready. |
+| Server process | In-process uvicorn | Tray app runs uvicorn directly (no subprocess management). |
+| Browser open | `webbrowser.open()` | Opens default browser when "Open Control Surface" is clicked. |
 
 ### Why not a single-file `.exe`?
 
-`--onefile` mode extracts to a temp dir on every launch (slow startup, 5-10 seconds). `--onedir` mode is a folder with an `.exe` inside — faster startup, easier to debug, and the folder can be zipped for distribution. We'll zip the `dist/MeowCamBridge/` folder.
+`--onefile` mode extracts to a temp dir on every launch (slow startup, 5-10 seconds). `--onedir` mode is a folder with an `.exe` inside — faster startup, easier to debug. The folder can be zipped for distribution.
 
-### Build script: `build_windows.py`
+## Build script: `build_windows.py`
 
-A single Python script that:
-1. Installs build dependencies (`pyinstaller`, `pystray`, `Pillow`).
-2. Runs PyInstaller with the tray app spec.
-3. Copies `web/` assets, `launch.bat`, and docs into the output folder.
-4. Zips the result.
-
-**This script is the entire build process.** After code changes, just run:
+One command produces the distributable:
 
 ```bash
 python build_windows.py
 ```
 
-And the new `.zip` is in `dist/`. No manual steps, no recreation.
+This script:
+1. Installs build dependencies (`pyinstaller`, `pystray`, `Pillow`).
+2. Runs PyInstaller with the tray app spec.
+3. Copies `web/` assets, `launch.bat`, and docs into the output folder.
+4. Zips the result into `dist/MeowCamBridge-<version>.zip`.
 
-### Tray app: `src/meowcam_bridge/tray_app.py`
+**After code changes, just run `python build_windows.py` again.** No manual steps.
 
-```python
-"""MeowCam Bridge system tray application for Windows.
+## Cross-platform notes
 
-Shows a tray icon with menu options:
-  - Open Control Surface (opens browser to http://localhost:8080)
-  - Close Server (stops the bridge and exits)
+### Windows
+- NDI works natively (built-in mDNS, no avahi needed)
+- USB capture via DirectShow/MediaFoundation backend (cv2.VideoCapture)
+- Shared USB device pool needs testing — Windows may lock capture devices exclusively
+- System tray app works with pystray
 
-On startup, shows a small tkinter loading window that auto-closes
-when the server responds to a health check.
-"""
-```
+### Linux
+- NDI requires avahi-daemon + multicast route (`ip route add 224.0.0.0/4 dev <iface>`)
+- USB capture via V4L2 backend (cv2.VideoCapture)
+- Shared USB device pool verified working
+- Use `launch.sh` instead of tray app
 
-### Updated `meowcam-bridge.spec`
-
-The spec will build TWO executables:
-1. `meowcam-bridge.exe` — the server (console=False, hidden).
-2. `MeowCamBridge.exe` — the tray app (console=False, windowed).
-
-Or simpler: build the tray app as the main entry point, which spawns the server as a subprocess using the same bundled Python. This avoids needing two .exe files.
-
-**Chosen approach:** Single `.exe` (`MeowCamBridge.exe`) that starts the server in-process using uvicorn's programmatic API (not subprocess), shows the tray icon, and manages the lifecycle. This is cleaner — no subprocess management, no orphan processes.
-
-### Firewall / UDP notes
+## Firewall / UDP notes
 
 The bridge listens on UDP ports for controller packets and sends to cameras. Windows Defender Firewall may block these.
 
@@ -124,16 +115,6 @@ The bridge listens on UDP ports for controller packets and sends to cameras. Win
 
 The tray app should show a firewall reminder on first run. For PyInstaller builds, the firewall rule targets `MeowCamBridge.exe`.
 
-## File locations (packaging decisions)
-
-| What | Development | Windows packaged | Linux/macOS installed |
-|------|-------------|------------------|----------------------|
-| Config | `./meowcam-bridge.json` (cwd) | `%LOCALAPPDATA%\MeowCamBridge\config.json` or alongside `.exe` | `~/.config/meowcam-bridge/config.json` or cwd |
-| Logs | stdout/stderr only | `%LOCALAPPDATA%\MeowCamBridge\logs\bridge.log` | `~/.local/share/meowcam-bridge/logs/bridge.log` |
-| Web UI | embedded in package (`src/meowcam_bridge/web/`) | embedded in `.exe` via PyInstaller `datas` | embedded in package |
-
-**Decision for v0.2:** Keep config alongside the `.exe` for simplicity. The operator unzips a folder, double-clicks `MeowCamBridge.exe`, and everything is self-contained. Logs go to a `logs/` subfolder.
-
 ## Build workflow (after code changes)
 
 ```bash
@@ -141,7 +122,7 @@ The tray app should show a firewall reminder on first run. For PyInstaller build
 # 2. Run tests
 pytest
 
-# 3. Build Windows package (produces dist/MeowCamBridge-<version>.zip)
+# 3. Build Windows package
 python build_windows.py
 
 # 4. Test the zip on a Windows VM
@@ -150,40 +131,23 @@ git tag v0.2.0
 git push origin v0.2.0
 ```
 
-That's it. No manual recreation of the build process.
-
 ## Versioning
 
 - Version lives in `pyproject.toml` and `src/meowcam_bridge/__init__.py`.
-- Git tags: `v0.1.0`, `v0.2.0`, etc.
+- Git tags: `v0.1.0`, `v0.1.1`, `v0.2.0`, etc.
 - Packaged releases: GitHub Releases with `.zip` of build output.
 - The build script reads the version from `pyproject.toml` automatically.
 
-## Testing the package
+## Release checklist (v0.2)
 
-```bash
-# Clean install test
-pip install .
-meowcam-bridge --help
-
-# Run tests
-pytest
-
-# Run with example config
-python -m meowcam_bridge --config examples/config.example.json
-```
-
-## Checklist for releasing v0.2 (system tray Windows app)
-
-- [ ] `tray_app.py` implemented with pystray + tkinter loading screen.
-- [ ] `build_windows.py` build script working.
-- [ ] `meowcam-bridge.spec` updated for windowed mode + tray app.
-- [ ] PyInstaller build produces working `MeowCamBridge.exe`.
-- [ ] Tray icon shows "MeowCam Bridge Server" with Open/Close menu.
-- [ ] Loading screen appears on startup and closes when server is ready.
-- [ ] No command window visible.
-- [ ] Browser opens to `http://localhost:8080` from tray menu.
-- [ ] Firewall prompt handled (exe allowed through).
-- [ ] Config and logs saved alongside the exe.
-- [ ] Tested on Windows 10 and Windows 11.
-- [ ] Zip file tested by unzipping to a fresh location and running.
+- [x] `tray_app.py` implemented with pystray + tkinter loading screen
+- [x] `build_windows.py` build script working
+- [x] `meowcam-bridge.spec` updated for windowed mode + tray app + NDI DLLs + OpenCV
+- [x] Tray icon shows "MeowCam Bridge" with Open/Close menu
+- [x] Loading screen appears on startup
+- [x] No command window visible
+- [ ] PyInstaller build tested on Windows 10 with USB capture
+- [ ] NDI tested on Windows (native mDNS — no workaround needed)
+- [ ] Shared USB device pool tested on Windows
+- [ ] Config and logs saved alongside the exe
+- [ ] Zip file tested on fresh Windows install
