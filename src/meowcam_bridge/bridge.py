@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import logging
+import sys
 from typing import Any
 
 from .config import BridgeConfig, CameraRoute
@@ -21,6 +22,55 @@ from .protocols.base import InputProfile, OutputProfile
 from .protocols.visca import build_visca_ip_packet, parse_visca_ip_packet, VISCA_REPLY_TYPE
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Windows UDP connreset fix
+# ---------------------------------------------------------------------------
+# On Windows, sending UDP packets to an unreachable host (e.g. a powered-off
+# camera) causes the OS to return ICMP "port unreachable", which Windows
+# surfaces as WSAECONNRESET (WinError 10054) on the next socket operation.
+# Python's ProactorEventLoop turns this into ConnectionResetError exceptions
+# that flood the event loop and block the web UI for ~30 seconds.
+
+_IS_WINDOWS = sys.platform == "win32"
+
+if _IS_WINDOWS:
+    import socket as _socket
+
+    def _disable_connreset(sock: "_socket.socket") -> None:
+        """Disable WSAECONNRESET on a Windows UDP socket."""
+        try:
+            sock.ioctl(_socket.SIO_UDP_CONNRESET, 0)
+        except (AttributeError, OSError) as exc:
+            try:
+                import ctypes as _ctypes
+                import ctypes.wintypes as _wt
+                SIO_UDP_CONNRESET = 0x9800000C
+                _WSAIoctl = _ctypes.windll.ws2_32.WSAIoctl
+                _WSAIoctl.argtypes = [
+                    _wt.HANDLE, _wt.DWORD, _ctypes.c_void_p, _wt.DWORD,
+                    _ctypes.c_void_p, _wt.DWORD, _ctypes.POINTER(_wt.DWORD),
+                    _ctypes.c_void_p, _ctypes.c_void_p,
+                ]
+                _WSAIoctl.restype = _wt.BOOL
+                sock_handle = _ctypes.c_void_p(sock.fileno())
+                opt = _ctypes.c_ulong(0)
+                bytes_returned = _wt.DWORD(0)
+                result = _WSAIoctl(
+                    sock_handle, SIO_UDP_CONNRESET,
+                    _ctypes.pointer(opt), _ctypes.sizeof(opt),
+                    None, 0, _ctypes.pointer(bytes_returned),
+                    None, None,
+                )
+                if result == 0:
+                    logger.info("SIO_UDP_CONNRESET disabled via WSAIoctl fallback")
+                else:
+                    logger.warning("WSAIoctl SIO_UDP_CONNRESET failed: result=%d", result)
+            except Exception as exc2:
+                logger.warning("Failed to disable SIO_UDP_CONNRESET (ioctl: %s, fallback: %s)", exc, exc2)
+else:
+    def _disable_connreset(sock: Any) -> None:
+        pass
 
 
 @dataclasses.dataclass
@@ -40,7 +90,10 @@ class _UDPEndpoint:
         self.protocol = protocol
 
     def send(self, data: bytes, addr: tuple[str, int]) -> None:
-        self.transport.sendto(data, addr)
+        try:
+            self.transport.sendto(data, addr)
+        except (ConnectionResetError, ConnectionRefusedError):
+            pass
 
     async def receive(self) -> tuple[bytes, tuple[str, int]]:
         return await self.protocol.queue.get()
@@ -62,6 +115,8 @@ class _UDPProtocol(asyncio.DatagramProtocol):
             logger.warning("UDP queue full, dropping packet from %s", addr)
 
     def error_received(self, exc: Exception | None) -> None:
+        if isinstance(exc, ConnectionResetError):
+            return
         logger.warning("UDP error received: %s", exc)
 
 
@@ -73,6 +128,10 @@ async def _bind_udp_endpoint(host: str, port: int) -> _UDPEndpoint:
         lambda: _UDPProtocol(queue),
         local_addr=(host, port),
     )
+    # Windows: disable WSAECONNRESET on the underlying socket
+    sock = transport.get_extra_info("socket")
+    if sock is not None:
+        _disable_connreset(sock)
     return _UDPEndpoint(transport, protocol)
 
 
@@ -431,8 +490,10 @@ class BridgeCore:
             return
 
         route_state = self.route_state(idx)
-        await self._inject_preset_speed_if_needed(
-            idx, route, output_prof, decoded.get("payload", b""), route_state, sock
+        asyncio.create_task(
+            self._inject_preset_speed_if_needed(
+                idx, route, output_prof, decoded.get("payload", b""), route_state, sock
+            )
         )
         camera_packet = output_prof.encode(decoded, route_state)
         if camera_packet is None:
@@ -582,8 +643,10 @@ class BridgeCore:
 
             route_state = self.route_state(idx)
             camera_sock = self._camera_sockets.get(idx)
-            await self._inject_preset_speed_if_needed(
-                idx, route, output_prof, decoded.get("payload", b""), route_state, camera_sock
+            asyncio.create_task(
+                self._inject_preset_speed_if_needed(
+                    idx, route, output_prof, decoded.get("payload", b""), route_state, camera_sock
+                )
             )
             camera_packet = output_prof.encode(decoded, route_state)
             if camera_packet is None:
@@ -909,8 +972,10 @@ class BridgeCore:
                 input_prof, output_prof_live = profiles
                 route_state = self.route_state(route_index)
                 if command == "preset_recall":
-                    await self._inject_preset_speed_if_needed(
-                        route_index, route, output_prof_live, payload, route_state, self._camera_sockets.get(route_index)
+                    asyncio.create_task(
+                        self._inject_preset_speed_if_needed(
+                            route_index, route, output_prof_live, payload, route_state, self._camera_sockets.get(route_index)
+                        )
                     )
                 cmd = {
                     "payload": payload,

@@ -30,13 +30,14 @@ from .atem import ATEMManager, ATEMConnectionError
 _bridge: BridgeCore | None = None
 _config_path: pathlib.Path | None = None
 _video_manager: VideoSourceManager | None = None
+_usb_device_cache: dict | None = None
 _atem_manager: ATEMManager | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Start/stop the bridge UDP listeners alongside the web UI."""
-    global _bridge, _video_manager
+    global _bridge, _video_manager, _usb_device_cache
     if _bridge is not None:
         await _bridge.start()
         print(f"[MeowCam] Bridge started — {_bridge.config}")
@@ -339,46 +340,34 @@ async def ndi_sources() -> dict:
 
 
 @app.get("/api/usb/devices")
-async def usb_devices() -> dict:
-    """Discover available USB/HDMI capture devices."""
+async def usb_devices(refresh: bool = False) -> dict:
+    """Discover available USB/HDMI capture devices.
+
+    Results are cached to avoid interfering with active capture sessions.
+    Pass ?refresh=true to force a fresh scan.
+    """
     import glob
     import os
     import sys
+    global _usb_device_cache
+
+    if not refresh and _usb_device_cache is not None:
+        return _usb_device_cache
+
     devices = []
 
     if sys.platform == "win32":
-        # Windows: probe indices 0-9 with cv2.VideoCapture
-        try:
-            import cv2
-            for idx in range(10):
-                cap = cv2.VideoCapture(idx)
-                if cap is not None and cap.isOpened():
-                    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
-                    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
-                    # Try to get a friendly name
-                    name = f"USB Device {idx}"
-                    try:
-                        backend_name = cap.getBackendName() if hasattr(cap, 'getBackendName') else ""
-                        if backend_name:
-                            name = f"Device {idx} ({backend_name})"
-                    except Exception:
-                        pass
-                    devices.append({
-                        "index": idx,
-                        "label": name,
-                        "width": w if w > 0 else None,
-                        "height": h if h > 0 else None,
-                        "path": None,
-                    })
-                    cap.release()
-                else:
-                    if cap is not None:
-                        cap.release()
-                    # Stop after first few consecutive failures past index 0
-                    if idx > 2:
-                        break
-        except ImportError:
-            pass
+        # Windows: list device indices 0-4 without probing.
+        # Probing with cv2.VideoCapture or pygrabber interferes with
+        # active capture sessions (DirectShow COM conflicts).
+        for idx in range(5):
+            devices.append({
+                "index": idx,
+                "label": f"USB Device {idx}",
+                "width": None,
+                "height": None,
+                "path": None,
+            })
     else:
         # Linux: enumerate /dev/video* devices
         for path in sorted(glob.glob('/dev/video*')):
@@ -388,15 +377,34 @@ async def usb_devices() -> dict:
                 # Even minors are capture devices, odd are metadata
                 if minor % 2 == 0:
                     index = minor // 2
+                    # Try to get a friendly name via v4l2-ctl
+                    name = f"Device {index}"
+                    try:
+                        import subprocess as _sp
+                        r = _sp.run(
+                            ["v4l2-ctl", "--device", path, "--info"],
+                            capture_output=True, text=True, timeout=2
+                        )
+                        for line in r.stdout.splitlines():
+                            if "Driver" in line and "Card type" in line:
+                                # Usually: "Card type      : USB3.0 Capture"
+                                pass
+                            if "Card type" in line:
+                                name = line.split(":", 1)[1].strip()
+                                break
+                    except Exception:
+                        pass
                     devices.append({
                         "index": index,
-                        "label": f"Device {index}",
+                        "label": name,
                         "path": path,
                     })
             except Exception:
                 pass
 
-    return {"devices": devices, "available": len(devices) > 0}
+    result = {"devices": devices, "available": len(devices) > 0}
+    _usb_device_cache = result
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -665,4 +673,8 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+
+
 

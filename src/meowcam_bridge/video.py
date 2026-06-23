@@ -391,11 +391,36 @@ class _SharedUSBPool:
         dev = self._devices[key]
         dev['running'] = True
         def capture_loop():
+            consecutive_failures = 0
             while dev['running']:
                 ret, frame = dev['cap'].read()
                 if ret:
+                    consecutive_failures = 0
                     with dev['lock']:
                         dev['frame'] = frame.copy()
+                else:
+                    consecutive_failures += 1
+                    if consecutive_failures > 30:
+                        # Device seems stuck — try to reopen
+                        logger.warning("USB device %s not responding, reopening", key)
+                        try:
+                            dev['cap'].release()
+                        except Exception:
+                            pass
+                        import time as _t
+                        _t.sleep(0.5)
+                        try:
+                            dev['cap'] = cv2.VideoCapture(key[0], key[1] or cv2.CAP_V4L2)
+                            if not dev['cap'].isOpened():
+                                logger.error("USB device %s reopen failed", key)
+                            else:
+                                logger.info("USB device %s reopened successfully", key)
+                                consecutive_failures = 0
+                        except Exception as exc:
+                            logger.error("USB device %s reopen error: %s", key, exc)
+                    else:
+                        import time as _t
+                        _t.sleep(0.03)  # Brief pause before retry
         dev['thread'] = threading.Thread(target=capture_loop, daemon=True)
         dev['thread'].start()
     
@@ -408,6 +433,12 @@ class _SharedUSBPool:
                 self._devices[key]['thread'].join(timeout=1.0)
                 self._devices[key]['cap'].release()
                 del self._devices[key]
+                # Brief pause after closing a device on Windows to allow
+                # DirectShow/Media Foundation to release the hardware before
+                # a potential reopen by another route.
+                if sys.platform == "win32":
+                    import time as _t
+                    _t.sleep(0.3)
     
     def get_frame(self, device_index: int, backend: int | None = None):
         key = (device_index, backend)
@@ -485,3 +516,4 @@ def snapshot_response(source: VideoSource, quality: int = 60, width: int = 480) 
         _, encoded = cv2.imencode(".jpg", placeholder)
         jpeg = encoded.tobytes()
     return jpeg, "image/jpeg"
+

@@ -765,15 +765,16 @@
       // USB field visibility and discovery
       const usbField = block.querySelector('.usb-field');
       const sourceType = block.querySelector('[data-v="source_type"]');
+      const savedUsbIndex = v.usb_device_index;
       if (usbField && sourceType) {
         usbField.style.display = sourceType.value === 'usb' ? 'block' : 'none';
         if (sourceType.value === 'usb') {
-          discoverUsb(block);
+          discoverUsb(block, savedUsbIndex);
         }
         sourceType.addEventListener('change', () => {
           usbField.style.display = sourceType.value === 'usb' ? 'block' : 'none';
           if (sourceType.value === 'usb') {
-            discoverUsb(block);
+            discoverUsb(block, savedUsbIndex);
           }
         });
       }
@@ -839,12 +840,12 @@
     }
   }
 
-  async function discoverUsb(block) {
+  async function discoverUsb(block, savedIndex) {
     const sel = block.querySelector('.usb-select');
     if (!sel) return;
     try {
       const res = await request('/api/usb/devices');
-      const current = sel.value;
+      const current = savedIndex != null ? String(savedIndex) : sel.value;
       sel.innerHTML = '';
       if (!res.available || !res.devices.length) {
         const opt = document.createElement('option');
@@ -859,7 +860,8 @@
           opt.textContent = dev.label;
           sel.appendChild(opt);
         });
-        if (current) sel.value = current;
+        // Restore the saved device index, not whatever the placeholder was
+        if (current != null) sel.value = current;
       }
     } catch (err) {
       console.error('USB discovery failed:', err);
@@ -1314,4 +1316,5 @@
   }, 15000);
   setInterval(pollTally, 500);
 })();
+
 
