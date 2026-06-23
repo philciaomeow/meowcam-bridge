@@ -296,10 +296,13 @@ async def post_command(payload: dict) -> dict:
     if not (0 <= route_index < len(_bridge.config.routes)):
         raise HTTPException(status_code=404, detail="route not found")
     result = await _bridge.send_command(route_index, command, args)
+    if result.result == "busy":
+        raise HTTPException(status_code=409, detail=result.detail or "camera is busy")
     return {
         "route_index": route_index,
         "command": command,
         "ok": result.ok,
+        "result": result.result,
         "detail": result.detail,
     }
 
@@ -677,6 +680,7 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
 
 
 

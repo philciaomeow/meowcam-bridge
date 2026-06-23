@@ -449,12 +449,8 @@ class BridgeCore:
             sock.send(reset_pkt, (route.camera_ip, route.camera_port))
             self._log_event(f"[{route.label}] Camera reset sent")
             # Drain immediate replies
-            import asyncio as _aio
-            try:
-                while True:
-                    await _aio.wait_for(sock.receive(), timeout=0.25)
-            except _aio.TimeoutError:
-                pass
+            # Do NOT drain the shared socket — that eats packets from other cameras.
+            # Just reset sequence and release busy state.
         except Exception as exc:
             logger.warning("Camera reset failed for route %s: %s", route.label, exc)
         # Reset sequence state
@@ -577,12 +573,8 @@ class BridgeCore:
             import struct
             reset_pkt = struct.pack(">HHI", 0x0200, 1, 0) + bytes([0x01])
             sock.send(reset_pkt, (route.camera_ip, route.camera_port))
-            import asyncio as _aio
-            try:
-                while True:
-                    await _aio.wait_for(sock.receive(), timeout=0.25)
-            except _aio.TimeoutError:
-                pass
+            # Do NOT drain the shared socket — that eats packets from other cameras.
+            # Just reset sequence and release busy state.
             route_state["sony_seq"] = 0
             self._pending_replies.get(idx, {}).clear()
             self._release_busy(idx)
@@ -789,12 +781,8 @@ class BridgeCore:
             import struct
             reset_pkt = struct.pack(">HHI", 0x0200, 1, 0) + bytes([0x01])
             sock.send(reset_pkt, (route.camera_ip, route.camera_port))
-            import asyncio as _aio
-            try:
-                while True:
-                    await _aio.wait_for(sock.receive(), timeout=0.25)
-            except _aio.TimeoutError:
-                pass
+            # Do NOT drain the shared socket — that eats packets from other cameras.
+            # Just reset sequence and release busy state.
             route_state["sony_seq"] = 0
             self._pending_replies.get(idx, {}).clear()
             self._release_busy(idx)
@@ -960,7 +948,7 @@ class BridgeCore:
         preset = self._preset_number_from_recall_payload(controller_payload)
         if preset is None:
             return
-        speed = self._preset_drive_speed_for_mode(route.movement_speed)
+        speed = self._preset_speed_for_route(idx, preset, route)
         payload = self._build_preset_speed_payload(preset, speed)
         if payload is None:
             return
@@ -1022,10 +1010,9 @@ class BridgeCore:
                 import time
                 self._route_busy[route_index] = time.monotonic()
                 if command == "preset_recall":
-                    asyncio.create_task(
-                        self._inject_preset_speed_if_needed(
-                            route_index, route, output_prof_live, payload, route_state, self._camera_sockets.get(route_index)
-                        )
+                    # MUST await — speed command must arrive BEFORE the recall
+                    await self._inject_preset_speed_if_needed(
+                        route_index, route, output_prof_live, payload, route_state, self._camera_sockets.get(route_index)
                     )
                 cmd = {
                     "payload": payload,
@@ -1146,3 +1133,4 @@ class BridgeCore:
                 return CommandResult(ok=True, result="ok", detail=f"stop built for {route.camera_ip}:{route.camera_port}")
             case _:
                 return CommandResult(ok=False, result="error", detail=f"unknown test type: {test_type}")
+

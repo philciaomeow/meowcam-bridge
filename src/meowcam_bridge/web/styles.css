@@ -399,3 +399,84 @@ footer { margin-top: auto; padding: 0; color: var(--muted); font-size: .78rem; l
   font-size: 10px;
   opacity: 0.8;
 }
+
+
+
+/* ===== Modal dialog ===== */
+.modal-overlay {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(0,0,0,0.6); display: flex; align-items: center;
+  justify-content: center; z-index: 9999;
+}
+.modal-dialog {
+  background: var(--bg-card, #1a1a2e); border-radius: 12px; padding: 24px;
+  min-width: 340px; max-width: 480px; box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+}
+.modal-dialog h3 { margin: 0 0 16px; font-size: 1.1rem; }
+.modal-field {
+  display: block; margin-bottom: 12px; font-size: 0.85rem; color: var(--text-dim, #888);
+}
+.modal-field input, .modal-field select {
+  display: block; width: 100%; margin-top: 4px; padding: 8px 10px;
+  background: var(--bg-input, #111); border: 1px solid var(--border, #333);
+  border-radius: 6px; color: var(--text, #fff); font-size: 1rem;
+}
+.modal-buttons { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
+.modal-buttons button { padding: 8px 20px; border-radius: 6px; cursor: pointer; }
+
+/* ===== Speed indicators on preset buttons ===== */
+.preset-btn em.speed-mark {
+  position: absolute; bottom: 2px; right: 4px; font-style: normal;
+  font-size: 0.7rem; opacity: 0.7; color: var(--accent, #4a9);
+}
+.preset-btn.speed-slow em.speed-mark { color: #6af; }
+.preset-btn.speed-medium em.speed-mark { color: #4a9; }
+.preset-btn.speed-fast em.speed-mark { color: #f96; }
+
+/* ===== Manual preset grid ===== */
+.manual-preset-section {
+  margin: 12px 0;
+}
+.manual-preset-section h3 {
+  font-size: 0.9rem; margin: 0 0 8px;
+}
+.manual-preset-section h3 small {
+  font-weight: normal; color: var(--text-dim, #888); font-size: 0.75rem;
+}
+.manual-preset-grid {
+  margin-bottom: 8px;
+}
+#btn-manual-save-mode {
+  margin-bottom: 8px; padding: 6px 16px; font-size: 0.85rem;
+  border-radius: 6px; cursor: pointer;
+}
+#btn-manual-save-mode.danger {
+  background: #e44; color: #fff; border: none;
+}
+.manual-preset-buttons {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
+}
+.manual-preset-buttons .preset-btn {
+  position: relative; padding: 8px 4px; font-size: 0.75rem;
+  min-height: 52px; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; border-radius: 6px; cursor: pointer;
+  background: var(--bg-btn, #222); border: 1px solid var(--border, #333);
+  color: var(--text, #fff);
+}
+.manual-preset-buttons .preset-btn strong { font-size: 1rem; }
+.manual-preset-buttons .preset-btn span { font-size: 0.7rem; opacity: 0.8; }
+.manual-preset-buttons .preset-btn.save-mode {
+  border-color: #e44; background: rgba(228,68,68,0.15);
+}
+.manual-preset-buttons .preset-btn.save-mode:hover {
+  background: rgba(228,68,68,0.3);
+}
+
+/* ===== Busy preset buttons ===== */
+.preset-btn.busy {
+  opacity: 0.5; pointer-events: none; animation: pulse-busy 1s ease-in-out infinite;
+}
+@keyframes pulse-busy {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 0.3; }
+}

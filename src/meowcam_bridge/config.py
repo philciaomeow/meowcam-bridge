@@ -61,6 +61,9 @@ class CameraRoute(BaseModel):
 
     # Preset labels: index 0 = preset 1, etc.
     preset_labels: list[str] = Field(default_factory=lambda: [f"Preset {i}" for i in range(1, 17)])
+    # Per-preset movement speed overrides: index 0 = preset 1, etc.
+    # Values: "slow", "medium", "fast", or "" (empty = use route's movement_speed)
+    preset_speeds: list[str] = Field(default_factory=lambda: [""] * 16)
 
     # Video capture settings
     video: CameraVideo = Field(default_factory=CameraVideo)
@@ -69,6 +72,11 @@ class CameraRoute(BaseModel):
     @classmethod
     def _limit_presets(cls, v: list[str]) -> list[str]:
         return v[:16]
+
+    @field_validator("preset_speeds")
+    @classmethod
+    def _limit_preset_speeds(cls, v: list[str]) -> list[str]:
+        return (v + [""] * 16)[:16]
 
 
 class AtemConfig(BaseModel):
@@ -127,3 +135,4 @@ class BridgeConfig(BaseModel):
             self.model_dump_json(indent=2, exclude_none=True),
             encoding="utf-8",
         )
+

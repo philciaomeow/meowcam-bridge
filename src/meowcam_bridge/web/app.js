@@ -66,6 +66,7 @@
     presetPage: 0,
     previewPage: 0,
     presetEditMode: false,
+    manualSaveMode: false,
     osdActive: false,
     editing: false,
     booted: false,
@@ -376,8 +377,12 @@
     const presetNumber = i + 1;
     const btn = document.createElement('button');
     const isLast = Number(state.lastPresets[String(route.index)]) === presetNumber;
-    btn.className = `${state.presetEditMode ? 'preset-btn editing' : 'preset-btn'} ${isLast ? 'last-used' : ''}`;
-    btn.innerHTML = `<strong>${presetNumber}</strong><span>${escapeHtml(route.preset_labels?.[i] || `Preset ${presetNumber}`)}</span>`;
+
+    const presetSpeed = route.preset_speeds?.[i] || '';
+    const speedIndicator = presetSpeed ? { slow: '›', medium: '››', fast: '›››' }[presetSpeed] || '' : '';
+    const speedClass = presetSpeed ? ` speed-${presetSpeed}` : '';
+    btn.className = `${state.presetEditMode ? 'preset-btn editing' : 'preset-btn'}${speedClass} ${isLast ? 'last-used' : ''}`;
+    btn.innerHTML = `<strong>${presetNumber}</strong><span>${escapeHtml(route.preset_labels?.[i] || `Preset ${presetNumber}`)}</span>${speedIndicator ? `<em class="speed-mark">${speedIndicator}</em>` : ''}`;
     btn.title = state.presetEditMode
       ? 'Click to rename this preset'
       : `Recall preset at ${SPEED_PRESETS[speedMode]?.label || 'Medium'} speed`;
@@ -411,9 +416,13 @@
     if (!route) return;
     const labels = [...(route.preset_labels || DEFAULT_ROUTE.preset_labels)].slice(0, MAX_PRESETS);
     const current = labels[presetIndex] || `Preset ${presetIndex + 1}`;
-    const next = prompt(`Rename ${route.label} preset ${presetIndex + 1}`, current);
-    if (next === null) return;
-    labels[presetIndex] = next.trim() || `Preset ${presetIndex + 1}`;
+    const result = await showModal({
+      title: `Rename ${route.label} Preset ${presetIndex + 1}`,
+      fields: [{ name: 'label', label: 'Preset name', value: current }],
+      confirmText: 'Save',
+    });
+    if (!result) return;
+    labels[presetIndex] = (result.label || '').trim() || `Preset ${presetIndex + 1}`;
     await savePresetLabels(routeIndex, labels);
     renderPresets();
     renderPreview();
@@ -655,6 +664,97 @@
   function stopManualFeed() {
     const pane = $('#manual-video');
     if (pane && pane._mcView) { pane._mcView.stop(); pane._mcView = null; }
+  }
+
+  /* ===================================================================
+     MANUAL PRESET GRID — preset buttons for the selected camera
+     =================================================================== */
+  function renderManualPresets() {
+    const sel = $('#manual-camera-select');
+    if (!sel) return;
+    const routeIndex = Number(sel.value || 0);
+    const route = state.routes[routeIndex] || cloneDefaultRoute(routeIndex);
+    const container = $('#manual-preset-grid');
+    if (!container) return;
+    container.innerHTML = '';
+
+    // Save mode toggle button
+    const saveToggle = document.createElement('button');
+    saveToggle.id = 'btn-manual-save-mode';
+    saveToggle.className = state.manualSaveMode ? 'danger' : 'accent';
+    saveToggle.textContent = state.manualSaveMode ? '✖ Cancel Save Mode' : '▼ Save Mode';
+    saveToggle.onclick = () => {
+      state.manualSaveMode = !state.manualSaveMode;
+      renderManualPresets();
+    };
+    container.appendChild(saveToggle);
+
+    // Preset grid
+    const grid = document.createElement('div');
+    grid.className = 'manual-preset-buttons';
+
+    for (let i = 0; i < MAX_PRESETS; i++) {
+      const presetNumber = i + 1;
+      const label = route.preset_labels?.[i] || `Preset ${presetNumber}`;
+      const presetSpeed = route.preset_speeds?.[i] || '';
+      const speedMark = presetSpeed ? { slow: '›', medium: '››', fast: '›››' }[presetSpeed] || '' : '';
+      const speedClass = presetSpeed ? ` speed-${presetSpeed}` : '';
+      const btn = document.createElement('button');
+      btn.className = `preset-btn${speedClass}${state.manualSaveMode ? ' save-mode' : ''}`;
+      btn.innerHTML = `<strong>${presetNumber}</strong><span>${escapeHtml(label)}</span>${speedMark ? `<em class="speed-mark">${speedMark}</em>` : ''}`;
+      btn.disabled = !route.enabled;
+      btn.addEventListener('click', () => {
+        if (state.manualSaveMode) {
+          manualSavePreset(routeIndex, i).catch((err) => alert(`Save failed: ${err.message}`));
+        } else {
+          sendCommand(routeIndex, 'preset_recall', { preset: presetNumber, ...speedArgsFor(routeIndex) });
+        }
+      });
+      grid.appendChild(btn);
+    }
+    container.appendChild(grid);
+  }
+
+  async function manualSavePreset(routeIndex, presetIndex) {
+    const route = state.routes[routeIndex];
+    if (!route) return;
+    const presetNumber = presetIndex + 1;
+    const currentLabel = route.preset_labels?.[presetIndex] || `Preset ${presetNumber}`;
+    const currentSpeed = route.preset_speeds?.[presetIndex] || route.movement_speed || 'medium';
+    const result = await showModal({
+      title: `Save ${route.label} Preset ${presetNumber}`,
+      fields: [
+        { name: 'label', label: 'Preset name', value: currentLabel },
+        { name: 'speed', label: 'Movement speed', value: currentSpeed, type: 'select',
+          options: [
+            { value: 'slow', label: 'Slow ›' },
+            { value: 'medium', label: 'Medium ››' },
+            { value: 'fast', label: 'Fast ›››' },
+          ] },
+      ],
+      confirmText: 'Save Preset',
+    });
+    if (!result) return;
+    // Update preset label and speed in config
+    const labels = [...(route.preset_labels || DEFAULT_ROUTE.preset_labels)].slice(0, MAX_PRESETS);
+    labels[presetIndex] = (result.label || '').trim() || `Preset ${presetNumber}`;
+    const speeds = [...(route.preset_speeds || [])].slice(0, MAX_PRESETS);
+    while (speeds.length < MAX_PRESETS) speeds.push('');
+    speeds[presetIndex] = result.speed || 'medium';
+    // Save to backend
+    const payload = { ...route, preset_labels: labels, preset_speeds: speeds };
+    delete payload.index;
+    await request(`/api/routes/${routeIndex}`, { method: 'PUT', body: JSON.stringify(payload) });
+    state.routes[routeIndex].preset_labels = labels;
+    state.routes[routeIndex].preset_speeds = speeds;
+    // Send preset save command to camera
+    await sendCommand(routeIndex, 'preset_save', { preset: presetNumber });
+    showStatus(`Saved preset ${presetNumber} (${result.speed}) for ${route.label}`, true);
+    // Exit save mode
+    state.manualSaveMode = false;
+    renderManualPresets();
+    renderPresets();
+    renderPreview();
   }
 
   /* ===================================================================
@@ -1057,7 +1157,67 @@
     }
   }
 
-  /* ===================================================================
+    /* ===================================================================
+     Modal dialog (replaces browser prompt())
+     =================================================================== */
+  function showModal({ title, fields, confirmText = 'OK', cancelText = 'Cancel' }) {
+    return new Promise((resolve) => {
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      const dialog = document.createElement('div');
+      dialog.className = 'modal-dialog';
+      dialog.innerHTML = `<h3>${escapeHtml(title)}</h3>`;
+      const inputs = {};
+      (fields || []).forEach((f) => {
+        const label = document.createElement('label');
+        label.className = 'modal-field';
+        label.textContent = f.label || f.name;
+        const inp = document.createElement('input');
+        inp.type = f.type || 'text';
+        inp.value = f.value || '';
+        if (f.options) {
+          const sel = document.createElement('select');
+          f.options.forEach((opt) => {
+            const o = document.createElement('option');
+            o.value = opt.value;
+            o.textContent = opt.label;
+            if (opt.value === f.value) o.selected = true;
+            sel.appendChild(o);
+          });
+          inputs[f.name] = sel;
+          label.appendChild(sel);
+        } else {
+          inputs[f.name] = inp;
+          label.appendChild(inp);
+        }
+        dialog.appendChild(label);
+      });
+      const btnRow = document.createElement('div');
+      btnRow.className = 'modal-buttons';
+      const cancelBtn = document.createElement('button');
+      cancelBtn.textContent = cancelText;
+      cancelBtn.onclick = () => { overlay.remove(); resolve(null); };
+      const okBtn = document.createElement('button');
+      okBtn.className = 'accent';
+      okBtn.textContent = confirmText;
+      okBtn.onclick = () => {
+        const result = {};
+        Object.entries(inputs).forEach(([k, v]) => { result[k] = v.value; });
+        overlay.remove();
+        resolve(result);
+      };
+      btnRow.appendChild(cancelBtn);
+      btnRow.appendChild(okBtn);
+      dialog.appendChild(btnRow);
+      overlay.appendChild(dialog);
+      overlay.onclick = (e) => { if (e.target === overlay) { overlay.remove(); resolve(null); } };
+      document.body.appendChild(overlay);
+      const firstInput = Object.values(inputs)[0];
+      if (firstInput) { firstInput.focus(); firstInput.select?.(); }
+    });
+  }
+
+/* ===================================================================
      Command sending (manual PTZ / lens / OSD / presets)
      =================================================================== */
 
@@ -1206,6 +1366,7 @@
     }
     if (name === 'manual') {
       syncManualVideo();
+      renderManualPresets();
     } else {
       stopManualFeed();
     }
@@ -1335,5 +1496,6 @@
   }, 15000);
   setInterval(pollTally, 500);
 })();
+
 
 
