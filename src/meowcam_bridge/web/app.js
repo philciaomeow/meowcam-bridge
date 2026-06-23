@@ -77,6 +77,9 @@
     tally: null,           // {pgm, pvw}
   };
 
+  // Per-route busy tracking (client-side mirror of server-side busy state)
+  const routeBusy = {};  // {routeIndex: true/false}
+
   const $ = (selector) => document.querySelector(selector);
   const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 
@@ -1240,17 +1243,50 @@
     return args;
   }
 
+  /* Update preset button disabled state based on routeBusy */
+  function updatePresetButtonsBusy() {
+    // Preset page buttons
+    document.querySelectorAll('.preset-buttons .preset-btn').forEach((btn) => {
+      const card = btn.closest('.camera-preset-card');
+      if (!card) return;
+      const ci = Number(card.dataset.cam);
+      const isBusy = !!routeBusy[ci];
+      btn.classList.toggle('busy', isBusy);
+      if (isBusy) btn.disabled = true;
+      else {
+        // Re-enable based on route enabled state (not in edit mode)
+        const route = state.routes[ci];
+        btn.disabled = state.presetEditMode ? false : (!route || !route.enabled);
+      }
+    });
+    // Manual page buttons
+    document.querySelectorAll('.manual-preset-buttons .preset-btn').forEach((btn) => {
+      const sel = $('#manual-camera-select');
+      const ci = Number(sel?.value || 0);
+      const isBusy = !!routeBusy[ci];
+      btn.classList.toggle('busy', isBusy);
+      if (isBusy) btn.disabled = true;
+      else {
+        const route = state.routes[ci];
+        btn.disabled = !route || !route.enabled;
+      }
+    });
+  }
+
   async function sendCommand(routeIndex, command, args = {}) {
     try {
       if (routeIndex === null || Number.isNaN(routeIndex)) return alert('Select a camera first.');
-      // Check if this route is busy
-      if (routeBusy[routeIndex]) {
+      // Check if this route is busy (only for preset_recall)
+      const isPresetRecall = command === 'preset_recall';
+      if (isPresetRecall && routeBusy[routeIndex]) {
         showStatus(`${state.routes[routeIndex]?.label || 'Camera'} is still moving — please wait for confirmation`, false);
         return;
       }
       showStatus(`Sending ${command}…`, true);
-      routeBusy[routeIndex] = true;
-      updatePresetButtonsBusy();
+      if (isPresetRecall) {
+        routeBusy[routeIndex] = true;
+        updatePresetButtonsBusy();
+      }
       const result = await request('/api/command', {
         method: 'POST', body: JSON.stringify({ route_index: routeIndex, command, args }),
       });
@@ -1258,7 +1294,7 @@
       if (command === 'menu_close') setOsdActive(false);
       showStatus(result.ok ? `${command} sent` : `${command} failed`, Boolean(result.ok));
       await loadDiagnostics();
-      if (!result.ok) alert(`${command} failed: ${result.detail || 'unknown error'}`);
+      if (!result.ok && !isPresetRecall) alert(`${command} failed: ${result.detail || 'unknown error'}`);
     } catch (err) {
       const errMsg = String(err.message || '');
       if (errMsg.includes('409') || errMsg.includes('busy')) {
@@ -1270,10 +1306,12 @@
     } finally {
       // Release busy state after a delay (camera completion reply will clear it server-side,
       // but we also clear it client-side after a timeout as safety)
-      setTimeout(() => {
-        routeBusy[routeIndex] = false;
-        updatePresetButtonsBusy();
-      }, command === 'preset_recall' ? 8000 : 2000);
+      if (isPresetRecall) {
+        setTimeout(() => {
+          routeBusy[routeIndex] = false;
+          updatePresetButtonsBusy();
+        }, 8000);
+      }
     }
   }
 
@@ -1495,6 +1533,25 @@
     loadRoutes();
   }, 15000);
   setInterval(pollTally, 500);
+
+  // Poll server busy state every 2s to clear client-side busy flags when camera finishes
+  setInterval(async () => {
+    try {
+      const st = await request('/api/bridge/status');
+      if (st && st.busy) {
+        let changed = false;
+        for (let i = 0; i < MAX_ROUTES; i++) {
+          const serverBusy = !!st.busy[i];
+          const clientBusy = !!routeBusy[i];
+          if (clientBusy && !serverBusy) {
+            routeBusy[i] = false;
+            changed = true;
+          }
+        }
+        if (changed) updatePresetButtonsBusy();
+      }
+    } catch (e) { /* ignore poll errors */ }
+  }, 2000);
 })();
 
 
