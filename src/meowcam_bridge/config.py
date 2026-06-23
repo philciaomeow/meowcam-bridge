@@ -64,6 +64,8 @@ class CameraRoute(BaseModel):
     # Per-preset movement speed overrides: index 0 = preset 1, etc.
     # Values: "slow", "medium", "fast", or "" (empty = use route's movement_speed)
     preset_speeds: list[str] = Field(default_factory=lambda: [""] * 16)
+    # Per-preset thumbnail data URLs (JPEG snapshots, small ~160px wide)
+    preset_thumbs: list[str] = Field(default_factory=lambda: [""] * 16)
 
     # Video capture settings
     video: CameraVideo = Field(default_factory=CameraVideo)
@@ -76,6 +78,11 @@ class CameraRoute(BaseModel):
     @field_validator("preset_speeds")
     @classmethod
     def _limit_preset_speeds(cls, v: list[str]) -> list[str]:
+        return (v + [""] * 16)[:16]
+
+    @field_validator("preset_thumbs")
+    @classmethod
+    def _limit_preset_thumbs(cls, v: list[str]) -> list[str]:
         return (v + [""] * 16)[:16]
 
 

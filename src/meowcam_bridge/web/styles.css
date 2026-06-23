@@ -277,9 +277,20 @@ main { margin-top: 0; min-height: 0; }
 .camera-speed.active, .speed-mode-btn.active { background: linear-gradient(135deg, var(--good), var(--accent)); color: #07120c; border-color: transparent; }
 
 /* ===================== MANUAL TAB (video hero + controls) ===================== */
-.manual-layout-v2 { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 16px; align-items: start; }
-.manual-video-wrap { position: sticky; top: 14px; }
-.manual-video-wrap .video-pane { aspect-ratio: 16 / 9; border-radius: var(--radius); }
+.manual-layout-v2 {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.8fr);
+  grid-template-rows: 1fr auto;
+  grid-template-areas:
+    "video controls"
+    "presets presets";
+  gap: 16px;
+  min-height: calc(100vh - 220px);
+}
+.manual-video-area { grid-area: video; }
+.manual-controls-area { grid-area: controls; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-content: start; }
+.manual-preset-bar { grid-area: presets; }
+.manual-video-area .video-pane { aspect-ratio: 16 / 9; border-radius: var(--radius); width: 100%; }
 .manual-cam-pick { display: flex; align-items: center; gap: 8px; font-size: .85rem; color: var(--muted); font-weight: 700; }
 .manual-cam-pick select { width: auto; }
 .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 16px; align-items: stretch; }
@@ -402,10 +413,104 @@ footer { margin-top: auto; padding: 0; color: var(--muted); font-size: .78rem; l
 .preset-video-pane .video-tag { padding: 4px 8px; }
 .camera-preset-card { overflow: hidden; }
 
+
+/* ===== Preset thumbnail overlay ===== */
+.preset-btn.has-thumb {
+  position: relative;
+}
+.preset-btn.has-thumb::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: var(--thumb-url, none);
+  background-size: cover;
+  background-position: center;
+  opacity: 0.5;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 0;
+}
+.preset-btn.has-thumb strong {
+  z-index: 1;
+  color: rgba(255,255,255,.12);
+  text-shadow: 0 1px 4px rgba(0,0,0,.8);
+}
+.preset-btn.has-thumb span {
+  z-index: 1;
+  text-shadow: 0 1px 4px rgba(0,0,0,.9);
+}
+.preset-btn.has-thumb em.speed-mark {
+  z-index: 1;
+  text-shadow: 0 1px 3px rgba(0,0,0,.8);
+}
+
+/* ===== Preset range toggle button ===== */
+.preset-range-btn {
+  font-size: .82rem;
+  padding: .46rem .8rem;
+  border-radius: 999px;
+  background: rgba(255,255,255,.08);
+  border: 1px solid var(--border);
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 700;
+  transition: transform .15s, border-color .15s, background .15s;
+}
+.preset-range-btn:hover { transform: translateY(-1px); border-color: rgba(255,184,108,.65); }
+
+/* ===== Manual preset header (save mode + range toggle) ===== */
+.manual-preset-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.manual-preset-header .preset-range-btn {
+  font-size: .78rem;
+  padding: .38rem .6rem;
+}
+.manual-preset-mode-label {
+  font-size: .78rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+.manual-preset-mode-label.save-active {
+  color: #e44;
+  font-weight: 700;
+}
+
+/* ===== Manual preset grid — 8 per row ===== */
+.manual-preset-buttons {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 8px;
+}
+.manual-preset-buttons .preset-btn {
+  min-height: 72px;
+  border-radius: 14px;
+}
+
+/* ===== Manual controls 2x2 grid ===== */
+.manual-controls-area .control-card {
+  padding: 14px;
+}
+.manual-controls-area .ptz-pad {
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 48px);
+  gap: 6px;
+}
+.manual-controls-area .button-stack button {
+  padding: .4rem;
+  font-size: .8rem;
+  border-radius: 10px;
+}
+
 @media (max-width: 1250px) {
   .preset-grid { grid-template-columns: repeat(2, minmax(260px, 1fr)); }
-  .preset-layout-v2 { grid-template-columns: 1fr; grid-template-areas: "video" "controls" "buttons"; }
-  .preset-buttons-bar { grid-template-columns: repeat(4, 1fr); }
+  .manual-layout-v2 { grid-template-columns: 1fr; grid-template-areas: "video" "controls" "presets"; }
+  .manual-controls-area { grid-template-columns: 1fr; }
+  .manual-preset-buttons { grid-template-columns: repeat(4, 1fr); }
   .setup-grid, .atem-grid { grid-template-columns: 1fr; }
 }
 
@@ -414,9 +519,8 @@ footer { margin-top: auto; padding: 0; color: var(--muted); font-size: .78rem; l
   .side-nav { position: static; height: auto; }
   .tabs { flex-direction: row; overflow-x: auto; }
   .preset-grid, .preview-grid, .manual-layout-v2, .controls, .stats { grid-template-columns: 1fr; }
-  .preset-grid-v2 { grid-template-columns: 1fr; grid-template-rows: 1fr; }
-  .preset-controls-grid { grid-template-columns: 1fr; }
-  .preset-buttons-bar { grid-template-columns: repeat(4, 1fr); }
+  .manual-preset-buttons { grid-template-columns: repeat(4, 1fr); }
+  .manual-controls-area { grid-template-columns: 1fr; }
   .section-head, .hero { align-items: flex-start; grid-template-columns: 1fr; flex-direction: column; }
   .field-row { grid-template-columns: 1fr; }
   .atem-mapping .mapping-grid { grid-template-columns: repeat(4, 1fr); }

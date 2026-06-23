@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MeowCam Bridge</title>
-<link rel="stylesheet" href="/static/styles.css?v=022">
+<link rel="stylesheet" href="/static/styles.css?v=023">
 </head>
 <body>
 <div class="app-shell">
@@ -43,7 +43,7 @@
   </header>
 
   <main>
-    <!-- ====================== PREVIEW TAB (new, v0.2) ====================== -->
+    <!-- ====================== PREVIEW TAB ====================== -->
     <section id="preview" class="tab-panel active">
       <div class="section-head">
         <div>
@@ -59,32 +59,25 @@
       <div id="preview-grid" class="preview-grid"></div>
     </section>
 
-    <!-- ====================== PRESETS TAB (redesigned) ====================== -->
+    <!-- ====================== PRESETS TAB (4-column with 1-8/9-16 toggle) ====================== -->
     <section id="presets" class="tab-panel">
       <div class="section-head">
         <div>
           <p class="eyebrow">quick playback</p>
           <h2>Preset recall</h2>
-          <p>Four cameras at a time, with editable friendly preset names and speed controls.</p>
+          <p>Four cameras at a time, with editable preset names, speed controls, and snapshot thumbnails.</p>
         </div>
         <div class="toolbar">
           <button class="preset-page-btn active" data-page="0">Cameras 1–4</button>
           <button class="preset-page-btn" data-page="1">Cameras 5–8</button>
+          <button id="btn-preset-range" class="preset-range-btn">Presets 1–8</button>
           <button id="btn-edit-presets" class="accent">Edit preset names</button>
         </div>
       </div>
-      <div class="preset-layout-v2">
-        <div class="preset-video-area">
-          <div id="preset-grid" class="preset-grid-v2"></div>
-        </div>
-        <div class="preset-controls-area">
-          <div id="preset-controls" class="preset-controls-grid"></div>
-        </div>
-        <div id="preset-buttons-bar" class="preset-buttons-bar"></div>
-      </div>
+      <div id="preset-grid" class="preset-grid"></div>
     </section>
 
-    <!-- ====================== MANUAL TAB (video hero added) ====================== -->
+    <!-- ====================== MANUAL TAB (v2 layout: video left, controls right, presets bottom) ====================== -->
     <section id="manual" class="tab-panel">
       <div class="section-head">
         <div>
@@ -102,7 +95,7 @@
         <strong>OSD menu is active.</strong> Pan/tilt/joystick controls may navigate the camera menu instead of moving the shot. Close the menu to return to normal PTZ movement.
       </div>
       <div class="manual-layout-v2">
-        <div class="manual-video-wrap">
+        <div class="manual-video-area">
           <div class="video-pane off" id="manual-video" data-cam="0">
             <img class="mjpeg" alt="Manual camera preview">
             <div class="video-overlay">
@@ -113,11 +106,7 @@
             <div class="video-off"><span class="cam-icon">📷</span><span class="vid-off-text">No video source configured</span></div>
           </div>
         </div>
-        <div class="manual-preset-section">
-          <h3>Presets <small id="manual-preset-mode-label"></small></h3>
-          <div id="manual-preset-grid" class="manual-preset-grid"></div>
-        </div>
-        <div class="controls">
+        <div class="manual-controls-area">
           <div class="control-card speed-card">
             <h3>Speed</h3>
             <div class="speed-mode-picker" role="group" aria-label="Speed presets">
@@ -155,18 +144,14 @@
             <button data-cmd="menu_back">Back / Left</button>
             <button data-cmd="menu_close">Menu Close</button>
           </div>
-          <div class="control-card button-stack preset-actions">
-            <h3>Preset tools</h3>
-            <label>Save # <input type="number" id="save-preset-num" min="1" max="16" value="1"></label>
-            <button id="btn-save-preset">Save Preset</button>
-            <label>Recall # <input type="number" id="recall-preset-num" min="1" max="16" value="1"></label>
-            <button id="btn-recall-preset">Recall Preset</button>
-          </div>
+        </div>
+        <div class="manual-preset-bar">
+          <div id="manual-preset-grid" class="manual-preset-grid"></div>
         </div>
       </div>
     </section>
 
-    <!-- ====================== DIAGNOSTICS TAB (unchanged) ====================== -->
+    <!-- ====================== DIAGNOSTICS TAB ====================== -->
     <section id="diagnostics" class="tab-panel">
       <div class="section-head">
         <div>
@@ -185,7 +170,7 @@
       <div class="log-view"><pre id="event-log">No events yet.</pre></div>
     </section>
 
-    <!-- ====================== SETTINGS TAB (restructured) ====================== -->
+    <!-- ====================== SETTINGS TAB ====================== -->
     <section id="settings" class="tab-panel">
       <div class="section-head">
         <div>
@@ -213,8 +198,6 @@
   </main>
   </div>
 </div>
-<script src="/static/app.js?v=022"></script>
+<script src="/static/app.js?v=023"></script>
 </body>
 </html>
-
-

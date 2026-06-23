@@ -76,6 +76,7 @@
     atemConnected: false,
     tally: null,           // {pgm, pvw}
     presetSelectedCam: undefined,  // which camera is selected on the presets page
+    presetRange: 0,  // 0 = presets 1-8, 1 = presets 9-16
   };
 
   // Per-route busy tracking (client-side mirror of server-side busy state)
@@ -385,7 +386,14 @@
     const presetSpeed = route.preset_speeds?.[i] || '';
     const speedIndicator = presetSpeed ? { slow: '›', medium: '››', fast: '›››' }[presetSpeed] || '' : '';
     const speedClass = presetSpeed ? ` speed-${presetSpeed}` : '';
+    const thumbUrl = route.preset_thumbs?.[i] || '';
     btn.className = `${state.presetEditMode ? 'preset-btn editing' : 'preset-btn'}${speedClass} ${isLast ? 'last-used' : ''}`;
+    
+    if (thumbUrl) {
+        btn.classList.add('has-thumb');
+        btn.style.setProperty('--thumb-url', `url(${thumbUrl})`);
+    }
+    
     btn.innerHTML = `<strong>${presetNumber}</strong><span>${escapeHtml(route.preset_labels?.[i] || `Preset ${presetNumber}`)}</span>${speedIndicator ? `<em class="speed-mark">${speedIndicator}</em>` : ''}`;
     btn.title = state.presetEditMode
       ? 'Click to rename this preset'
@@ -398,7 +406,8 @@
         state.lastPresets[String(route.index)] = presetNumber;
         persistPresetState();
         // Update "last used" highlight without destroying/recreating video panes
-        document.querySelectorAll('.preset-buttons .preset-btn').forEach((b) => b.classList.remove('last-used'));
+        const allBtns = btn.closest('.preset-buttons, #preset-buttons-bar, .manual-preset-buttons');
+        if (allBtns) allBtns.querySelectorAll('.preset-btn').forEach((b) => b.classList.remove('last-used'));
         btn.classList.add('last-used');
         sendCommand(route.index, 'preset_recall', { preset: presetNumber, ...speedArgsFor(route.index) });
       }
@@ -406,7 +415,7 @@
     return btn;
   }
 
-  async function savePresetLabels(routeIndex, labels) {
+async function savePresetLabels(routeIndex, labels) {
     const route = state.routes[routeIndex];
     if (!route) return;
     const payload = { ...route, preset_labels: labels };
@@ -550,25 +559,26 @@
 
   function renderPresets() {
     const grid = $('#preset-grid');
-    const controlsArea = $('#preset-controls');
-    const buttonsBar = $('#preset-buttons-bar');
     if (!grid) return;
 
-    // Determine which camera is selected for the controls/buttons area
-    if (state.presetSelectedCam === undefined) {
-      const start = state.presetPage * 4;
-      state.presetSelectedCam = start; // default to first camera on page
-    }
-
-    // Render video area (2×2 grid)
-    grid.innerHTML = '';
     const start = state.presetPage * 4;
+    const presetStart = state.presetRange * 8;
+    const presetEnd = presetStart + 8;
+
+    // Full rebuild — tear down feeds first
+    stopPresetFeeds();
+    grid.innerHTML = '';
+    grid.className = 'preset-grid';
+
     const routes = state.routes.slice(start, start + 4);
     routes.forEach((route) => {
       const card = document.createElement('article');
-      card.className = `camera-preset-card-v2 ${route.enabled ? '' : 'disabled'} ${state.presetSelectedCam === route.index ? 'selected' : ''}`;
-      card.dataset.cam = String(route.index);
+      card.className = `camera-preset-card ${route.enabled ? '' : 'disabled'}`;
       card.innerHTML = `
+        <div class="camera-card-head">
+          <h3>${escapeHtml(route.label)}</h3>
+          <span class="route-status ${escapeHtml(route.status || 'unknown')}">${route.enabled ? escapeHtml(route.status || 'unknown') : 'off'}</span>
+        </div>
         <div class="preset-video-pane video-pane off" data-cam="${route.index}">
           <img class="mjpeg" alt="${escapeHtml(route.label)} preview">
           <div class="video-overlay">
@@ -576,107 +586,28 @@
           </div>
           <div class="video-off"><span class="cam-icon">📷</span></div>
         </div>
-        <div class="camera-card-v2-head">
-          <h3>${escapeHtml(route.label)}</h3>
-          <span class="route-status ${escapeHtml(route.status || 'unknown')}">${route.enabled ? escapeHtml(route.status || 'unknown') : 'off'}</span>
-        </div>
+        <div class="preset-buttons"></div>
       `;
-      card.addEventListener('click', () => {
-        state.presetSelectedCam = route.index;
-        renderPresets();
-      });
+      // Add preset buttons (8 per range)
+      const btnContainer = card.querySelector('.preset-buttons');
+      for (let i = presetStart; i < presetEnd; i++) {
+        btnContainer.appendChild(makePresetButton(route, i, speedModeFor(route.index)));
+      }
       grid.appendChild(card);
     });
 
-    // Render controls area (speed + PTZ for selected camera)
-    if (controlsArea) {
-      const selRoute = state.routes[state.presetSelectedCam] || state.routes[start] || state.routes[0];
-      const speedMode = speedModeFor(selRoute?.index ?? 0);
-      controlsArea.innerHTML = `
-        <div class="control-card preset-speed-card">
-          <h3>${escapeHtml(selRoute?.label || 'Camera')}</h3>
-          <div class="camera-speed-bar" role="group" aria-label="Movement speed">
-            ${Object.entries(SPEED_PRESETS).map(([mode, preset]) => `<button class="camera-speed ${mode === speedMode ? 'active' : ''}" data-speed="${mode}">${preset.label}</button>`).join('')}
-          </div>
-        </div>
-        <div class="control-card preset-ptz-card">
-          <h3>Pan / Tilt</h3>
-          <div class="ptz-pad">
-            <button data-cmd="pan_left">◀</button>
-            <button data-cmd="tilt_up">▲</button>
-            <button data-cmd="tilt_down">▼</button>
-            <button data-cmd="pan_right">▶</button>
-            <button data-cmd="stop" class="stop">Stop</button>
-          </div>
-        </div>
-        <div class="control-card preset-lens-card">
-          <h3>Lens</h3>
-          <button data-cmd="zoom_in">Zoom In +</button>
-          <button data-cmd="zoom_out">Zoom Out −</button>
-          <button data-cmd="focus_near">Focus Near</button>
-          <button data-cmd="focus_far">Focus Far</button>
-        </div>
-        <div class="control-card preset-osd-card">
-          <h3>OSD Menu</h3>
-          <button data-cmd="menu_open">Menu Open</button>
-          <button data-cmd="menu_enter">Enter</button>
-          <button data-cmd="menu_back">Back</button>
-          <button data-cmd="menu_close">Menu Close</button>
-        </div>
-      `;
-      // Bind speed buttons
-      controlsArea.querySelectorAll('.camera-speed').forEach((btn) => {
-        btn.addEventListener('click', (event) => {
-          event.stopPropagation();
-          setCameraSpeed(selRoute.index, btn.dataset.speed).catch((err) => alert(`Speed save failed: ${err.message}`));
-        });
-      });
-      // Bind PTZ/lens/OSD buttons
-      controlsArea.querySelectorAll('button[data-cmd]').forEach((btn) => {
-        const raw = btn.dataset.cmd;
-        const command = raw === 'autofocus' ? 'autofocus_toggle' : raw;
-        if (isHoldToMoveCommand(command)) {
-          let activePointer = null;
-          const startMove = (event) => {
-            activePointer = event.pointerId;
-            btn.setPointerCapture(event.pointerId);
-            sendCommand(selRoute.index, command, commandArgs(command));
-          };
-          const stopMove = (event) => {
-            if (activePointer !== null && event.pointerId !== activePointer) return;
-            activePointer = null;
-            const stopCommand = command.startsWith('zoom_') ? 'zoom_stop' : command.startsWith('focus_') ? 'focus_stop' : 'stop';
-            sendCommand(selRoute.index, stopCommand, commandArgs(stopCommand));
-          };
-          btn.addEventListener('pointerdown', startMove);
-          btn.addEventListener('pointerup', stopMove);
-          btn.addEventListener('pointerleave', (event) => { if (activePointer !== null) stopMove(event); });
-        } else {
-          btn.addEventListener('click', () => {
-            sendCommand(selRoute.index, command, commandArgs(command));
-          });
-        }
-      });
-    }
-
-    // Render preset buttons bar (bottom, horizontal for selected camera)
-    if (buttonsBar) {
-      const selRoute = state.routes[state.presetSelectedCam] || state.routes[start] || state.routes[0];
-      const speedMode = speedModeFor(selRoute?.index ?? 0);
-      buttonsBar.innerHTML = '';
-      for (let i = 0; i < MAX_PRESETS; i += 1) {
-        buttonsBar.appendChild(makePresetButton(selRoute, i, speedMode));
-      }
-    }
-
-    // Start/stop video feeds for preset panes
+    // Start video feeds
     syncPresetFeeds();
     $$('.preset-page-btn').forEach((btn) => btn.classList.toggle('active', Number(btn.dataset.page) === state.presetPage));
+    const rangeBtn = $('#btn-preset-range');
+    if (rangeBtn) {
+      rangeBtn.textContent = state.presetRange === 0 ? 'Presets 1–8' : 'Presets 9–16';
+    }
     const editBtn = $('#btn-edit-presets');
     if (editBtn) editBtn.textContent = state.presetEditMode ? 'Done editing preset names' : 'Edit preset names';
   }
 
-  function syncPresetFeeds() {
+function syncPresetFeeds() {
     const grid = $('#preset-grid');
     if (!grid) return;
     const isActive = $('#presets')?.classList.contains('active');
@@ -766,7 +697,10 @@
     if (!container) return;
     container.innerHTML = '';
 
-    // Save mode toggle button
+    // Header row: Save Mode toggle + range toggle
+    const headerRow = document.createElement('div');
+    headerRow.className = 'manual-preset-header';
+    
     const saveToggle = document.createElement('button');
     saveToggle.id = 'btn-manual-save-mode';
     saveToggle.className = state.manualSaveMode ? 'danger' : 'accent';
@@ -775,20 +709,45 @@
       state.manualSaveMode = !state.manualSaveMode;
       renderManualPresets();
     };
-    container.appendChild(saveToggle);
+    headerRow.appendChild(saveToggle);
 
-    // Preset grid
+    const rangeToggle = document.createElement('button');
+    rangeToggle.className = 'preset-range-btn';
+    rangeToggle.textContent = state.presetRange === 0 ? 'Presets 1–8' : 'Presets 9–16';
+    rangeToggle.onclick = () => {
+      state.presetRange = 1 - state.presetRange;
+      renderManualPresets();
+    };
+    headerRow.appendChild(rangeToggle);
+
+    const modeLabel = document.createElement('span');
+    modeLabel.className = 'manual-preset-mode-label';
+    modeLabel.textContent = state.manualSaveMode ? 'Click a preset to save (red = save mode)' : 'Click a preset to recall';
+    if (state.manualSaveMode) modeLabel.classList.add('save-active');
+    headerRow.appendChild(modeLabel);
+
+    container.appendChild(headerRow);
+
+    // Preset grid — 8 buttons per row
     const grid = document.createElement('div');
     grid.className = 'manual-preset-buttons';
 
-    for (let i = 0; i < MAX_PRESETS; i++) {
+    const presetStart = state.presetRange * 8;
+    const presetEnd = presetStart + 8;
+    
+    for (let i = presetStart; i < presetEnd; i++) {
       const presetNumber = i + 1;
       const label = route.preset_labels?.[i] || `Preset ${presetNumber}`;
       const presetSpeed = route.preset_speeds?.[i] || '';
       const speedMark = presetSpeed ? { slow: '›', medium: '››', fast: '›››' }[presetSpeed] || '' : '';
       const speedClass = presetSpeed ? ` speed-${presetSpeed}` : '';
+      const thumbUrl = route.preset_thumbs?.[i] || '';
       const btn = document.createElement('button');
       btn.className = `preset-btn${speedClass}${state.manualSaveMode ? ' save-mode' : ''}`;
+      if (thumbUrl) {
+        btn.classList.add('has-thumb');
+        btn.style.setProperty('--thumb-url', `url(${thumbUrl})`);
+      }
       btn.innerHTML = `<strong>${presetNumber}</strong><span>${escapeHtml(label)}</span>${speedMark ? `<em class="speed-mark">${speedMark}</em>` : ''}`;
       btn.disabled = !route.enabled;
       btn.addEventListener('click', () => {
@@ -803,7 +762,7 @@
     container.appendChild(grid);
   }
 
-  async function manualSavePreset(routeIndex, presetIndex) {
+async function manualSavePreset(routeIndex, presetIndex) {
     const route = state.routes[routeIndex];
     if (!route) return;
     const presetNumber = presetIndex + 1;
@@ -819,25 +778,58 @@
             { value: 'medium', label: 'Medium ››' },
             { value: 'fast', label: 'Fast ›››' },
           ] },
+        { name: 'snapshot', label: 'Capture snapshot thumbnail?', value: 'yes', type: 'select',
+          options: [
+            { value: 'yes', label: 'Yes — capture current camera view' },
+            { value: 'no', label: 'No — keep existing/no thumbnail' },
+          ] },
       ],
       confirmText: 'Save Preset',
     });
     if (!result) return;
-    // Update preset label and speed in config
+    
+    // Capture snapshot if requested
+    let thumbData = route.preset_thumbs?.[presetIndex] || '';
+    if (result.snapshot === 'yes') {
+      try {
+        showStatus('Capturing snapshot…', true);
+        const snapRes = await fetch(`/api/video/snapshot/${routeIndex}?quality=50&width=160&t=${Date.now()}`);
+        if (snapRes.ok) {
+          const blob = await snapRes.blob();
+          // Convert to data URL
+          thumbData = await new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result);
+            reader.readAsDataURL(blob);
+          });
+        }
+      } catch (e) {
+        console.warn('Snapshot capture failed:', e);
+      }
+    }
+    
+    // Update preset label, speed, and thumbnail in config
     const labels = [...(route.preset_labels || DEFAULT_ROUTE.preset_labels)].slice(0, MAX_PRESETS);
     labels[presetIndex] = (result.label || '').trim() || `Preset ${presetNumber}`;
     const speeds = [...(route.preset_speeds || [])].slice(0, MAX_PRESETS);
     while (speeds.length < MAX_PRESETS) speeds.push('');
     speeds[presetIndex] = result.speed || 'medium';
+    const thumbs = [...(route.preset_thumbs || [])].slice(0, MAX_PRESETS);
+    while (thumbs.length < MAX_PRESETS) thumbs.push('');
+    thumbs[presetIndex] = thumbData;
+    
     // Save to backend
-    const payload = { ...route, preset_labels: labels, preset_speeds: speeds };
+    const payload = { ...route, preset_labels: labels, preset_speeds: speeds, preset_thumbs: thumbs };
     delete payload.index;
     await request(`/api/routes/${routeIndex}`, { method: 'PUT', body: JSON.stringify(payload) });
     state.routes[routeIndex].preset_labels = labels;
     state.routes[routeIndex].preset_speeds = speeds;
+    state.routes[routeIndex].preset_thumbs = thumbs;
+    
     // Send preset save command to camera
     await sendCommand(routeIndex, 'preset_save', { preset: presetNumber });
     showStatus(`Saved preset ${presetNumber} (${result.speed}) for ${route.label}`, true);
+    
     // Exit save mode
     state.manualSaveMode = false;
     renderManualPresets();
@@ -845,7 +837,7 @@
     renderPreview();
   }
 
-  /* ===================================================================
+/* ===================================================================
      SETTINGS TAB — Control + Video setup cards per route
      =================================================================== */
 
@@ -1330,10 +1322,12 @@
 
   /* Update preset button disabled state based on routeBusy */
   function updatePresetButtonsBusy() {
-    // Preset page buttons (now in #preset-buttons-bar)
-    document.querySelectorAll('#preset-buttons-bar .preset-btn').forEach((btn) => {
-      const selRoute = state.routes[state.presetSelectedCam ?? 0];
-      const ci = selRoute?.index ?? 0;
+    // Preset page buttons (in .preset-buttons within each camera card)
+    document.querySelectorAll('#preset-grid .preset-buttons .preset-btn').forEach((btn) => {
+      const card = btn.closest('.camera-preset-card');
+      if (!card) return;
+      const pane = card.querySelector('.preset-video-pane[data-cam]');
+      const ci = pane ? Number(pane.dataset.cam) : 0;
       const isBusy = !!routeBusy[ci];
       btn.classList.toggle('busy', isBusy);
       if (isBusy) btn.disabled = true;
@@ -1356,7 +1350,7 @@
     });
   }
 
-  async function sendCommand(routeIndex, command, args = {}) {
+async function sendCommand(routeIndex, command, args = {}) {
     const isPresetRecall = command === 'preset_recall';
     try {
       if (routeIndex === null || Number.isNaN(routeIndex)) return alert('Select a camera first.');
@@ -1502,13 +1496,18 @@
 
     $$('.preset-page-btn').forEach((btn) => btn.addEventListener('click', () => {
       state.presetPage = Number(btn.dataset.page);
-      state.presetSelectedCam = state.presetPage * 4; // reset to first camera on new page
       renderPresets();
     }));
     $$('.preview-page-btn').forEach((btn) => btn.addEventListener('click', () => {
       state.previewPage = Number(btn.dataset.page);
       renderPreview();
     }));
+
+    // Preset range toggle (1-8 / 9-16)
+    $('#btn-preset-range')?.addEventListener('click', () => {
+      state.presetRange = 1 - state.presetRange;
+      renderPresets();
+    });
 
     document.addEventListener('click', (event) => {
       const speedBtn = event.target.closest('.speed-mode-btn');
@@ -1526,6 +1525,7 @@
       const routeIndex = Number($('#manual-camera-select')?.value || 0);
       updateManualSpeedControls(speedModeFor(routeIndex));
       syncManualVideo();
+      renderManualPresets();
     });
 
     $('#btn-edit-presets')?.addEventListener('click', () => {
@@ -1546,7 +1546,7 @@
       if (button.dataset.action === 'test-route') testRoute(index);
     });
 
-    $$('.controls button[data-cmd]').forEach((btn) => {
+    $$('.manual-controls-area button[data-cmd]').forEach((btn) => {
       const raw = btn.dataset.cmd;
       const command = raw === 'autofocus' ? 'autofocus_toggle' : raw;
       if (isHoldToMoveCommand(command)) {
@@ -1577,17 +1577,6 @@
       }
     });
 
-    $('#btn-save-preset')?.addEventListener('click', () => {
-      const routeIndex = Number($('#manual-camera-select')?.value);
-      const preset = Number($('#save-preset-num').value);
-      sendCommand(routeIndex, 'preset_save', { preset });
-    });
-    $('#btn-recall-preset')?.addEventListener('click', () => {
-      const routeIndex = Number($('#manual-camera-select')?.value);
-      const preset = Number($('#recall-preset-num').value);
-      sendCommand(routeIndex, 'preset_recall', { preset });
-    });
-
     $('#btn-export')?.addEventListener('click', () => exportConfig().catch((err) => { showStatus('Export failed', false); alert(`Export failed: ${err.message}`); }));
     $('#btn-import')?.addEventListener('click', () => $('#import-file')?.click());
     $('#import-file')?.addEventListener('change', (event) => {
@@ -1598,7 +1587,7 @@
     $('#btn-reset-routes')?.addEventListener('click', () => resetDiagnostics().catch((err) => { showStatus('Reset failed', false); alert(`Reset failed: ${err.message}`); }));
   }
 
-  /* ===================================================================
+/* ===================================================================
      Init
      =================================================================== */
 
