@@ -176,10 +176,10 @@ main { margin-top: 0; min-height: 0; }
 .preview-cell { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
 .preview-cell .video-pane { flex: 1; min-height: 0; }
 .preview-cell { display: flex; flex-direction: column; gap: 8px; }
-.preview-cell .preset-buttons { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.preview-cell .preset-buttons { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
 .camera-preset-card .preset-btn { min-height: 56px; border-radius: 10px; }
 .camera-preset-card .preset-btn strong { font-size: 2rem; }
-.camera-preset-card .preset-btn span { font-size: .72rem; line-height: 1.05; }
+.camera-preset-card .preset-btn span { font-size: .78rem; line-height: 1.05; }
 /* click-to-enlarge: hide siblings, span enlarged cell full width */
 .preview-grid.has-enlarged .preview-cell:not(.enlarged) { display: none; }
 .preview-grid.has-enlarged { grid-template-columns: 1fr; }
@@ -276,10 +276,10 @@ main { margin-top: 0; min-height: 0; }
 .camera-card-head { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; margin-bottom: 8px; }
 .camera-card-head h3 { margin: 0 0 2px; font-size: 1rem; }
 .camera-card-head p { margin: 0; color: var(--muted); font-size: .74rem; }
-.preset-buttons { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.preset-buttons { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
 .camera-preset-card .preset-btn { min-height: 56px; border-radius: 10px; }
 .camera-preset-card .preset-btn strong { font-size: 2rem; }
-.camera-preset-card .preset-btn span { font-size: .72rem; line-height: 1.05; }
+.camera-preset-card .preset-btn span { font-size: .78rem; line-height: 1.05; }
 .preset-btn { min-height: 64px; border-radius: 16px; padding: .65rem; position: relative; overflow: hidden; display: grid; place-items: center; text-align: center; border: 1px solid var(--border); color: var(--text); background: rgba(255,255,255,.08); cursor: pointer; font-weight: 700; }
 .preset-btn strong { position: absolute; inset: 0; display: grid; place-items: center; color: rgba(255,255,255,.075); font-size: 3.2rem; line-height: 1; font-weight: 1000; pointer-events: none; }
 .preset-btn span { position: relative; z-index: 1; font-size: clamp(1rem, 1.35vw, 1.38rem); font-weight: 900; line-height: 1.05; text-wrap: balance; }
