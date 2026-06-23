@@ -28,7 +28,9 @@ body {
 }
 
 .app-shell { width: 100%; min-height: 100vh; display: grid; grid-template-columns: 184px minmax(0, 1fr); gap: 14px; padding: 14px; }
-.workspace { min-width: 0; display: grid; grid-template-rows: auto 1fr; gap: 12px; }
+.workspace { min-width: 0; display: grid; grid-template-rows: auto 1fr; gap: 12px; min-height: calc(100vh - 28px); }
+main { display: flex; flex-direction: column; min-height: 0; }
+.tab-panel.active { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 .side-nav {
   position: sticky; top: 14px; height: calc(100vh - 28px);
   display: flex; flex-direction: column; gap: 14px;
@@ -104,7 +106,7 @@ main { margin-top: 0; min-height: 0; }
 .tab-panel.active { display: block; }
 .section-head {
   display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 14px;
-  margin: 0 0 12px;
+  margin: 0 0 8px; flex: 0 0 auto;
 }
 .section-head h2 { margin-bottom: 2px; font-size: clamp(1.15rem, 2vw, 1.65rem); letter-spacing: -.04em; }
 .section-head .eyebrow, .section-head p { display: none; }
@@ -170,9 +172,14 @@ main { margin-top: 0; min-height: 0; }
 .video-off .cam-icon { font-size: 2.2rem; opacity: .5; }
 
 /* ===================== PREVIEW TAB (2x2 grid + enlarge) ===================== */
-.preview-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.preview-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; flex: 1; min-height: 0; }
+.preview-cell { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.preview-cell .video-pane { flex: 1; min-height: 0; }
 .preview-cell { display: flex; flex-direction: column; gap: 8px; }
-.preview-cell .preset-buttons { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.preview-cell .preset-buttons { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.camera-preset-card .preset-btn { min-height: 56px; border-radius: 10px; }
+.camera-preset-card .preset-btn strong { font-size: 2rem; }
+.camera-preset-card .preset-btn span { font-size: .72rem; line-height: 1.05; }
 /* click-to-enlarge: hide siblings, span enlarged cell full width */
 .preview-grid.has-enlarged .preview-cell:not(.enlarged) { display: none; }
 .preview-grid.has-enlarged { grid-template-columns: 1fr; }
@@ -260,13 +267,19 @@ main { margin-top: 0; min-height: 0; }
 }
 
 /* Old preset grid styles (kept for compatibility) */
-.preset-grid { display: grid; grid-template-columns: repeat(4, minmax(210px, 1fr)); gap: 12px; }
+.preset-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; flex: 1; min-height: 0; overflow: auto; }
+.camera-preset-card { padding: 10px; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.camera-preset-card .preset-video-pane { flex: 0 0 auto; aspect-ratio: 16/9; min-height: 100px; }
+.camera-preset-card .preset-buttons { flex: 1; min-height: 0; }
 .camera-preset-card { padding: 12px; }
 .camera-preset-card.disabled { opacity: .72; }
 .camera-card-head { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; margin-bottom: 8px; }
 .camera-card-head h3 { margin: 0 0 2px; font-size: 1rem; }
 .camera-card-head p { margin: 0; color: var(--muted); font-size: .74rem; }
-.preset-buttons { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.preset-buttons { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.camera-preset-card .preset-btn { min-height: 56px; border-radius: 10px; }
+.camera-preset-card .preset-btn strong { font-size: 2rem; }
+.camera-preset-card .preset-btn span { font-size: .72rem; line-height: 1.05; }
 .preset-btn { min-height: 64px; border-radius: 16px; padding: .65rem; position: relative; overflow: hidden; display: grid; place-items: center; text-align: center; border: 1px solid var(--border); color: var(--text); background: rgba(255,255,255,.08); cursor: pointer; font-weight: 700; }
 .preset-btn strong { position: absolute; inset: 0; display: grid; place-items: center; color: rgba(255,255,255,.075); font-size: 3.2rem; line-height: 1; font-weight: 1000; pointer-events: none; }
 .preset-btn span { position: relative; z-index: 1; font-size: clamp(1rem, 1.35vw, 1.38rem); font-weight: 900; line-height: 1.05; text-wrap: balance; }
@@ -279,18 +292,27 @@ main { margin-top: 0; min-height: 0; }
 /* ===================== MANUAL TAB (video hero + controls) ===================== */
 .manual-layout-v2 {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.8fr);
+  grid-template-columns: minmax(0, 1.4fr) minmax(260px, 0.8fr);
   grid-template-rows: 1fr auto;
   grid-template-areas:
     "video controls"
     "presets presets";
-  gap: 16px;
-  min-height: calc(100vh - 220px);
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 .manual-video-area { grid-area: video; }
-.manual-controls-area { grid-area: controls; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-content: start; }
+.manual-controls-area { grid-area: controls; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-content: start; overflow-y: auto; }
+.manual-controls-area .control-card { padding: 12px; }
+.manual-controls-area .ptz-pad { grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 44px); gap: 5px; }
+.manual-controls-area .button-stack button { padding: .35rem; font-size: .78rem; border-radius: 8px; }
+.manual-controls-area .speed-card label { font-size: .78rem; }
+.manual-controls-area .speed-card input[type="range"] { height: 6px; }
 .manual-preset-bar { grid-area: presets; }
-.manual-video-area .video-pane { aspect-ratio: 16 / 9; border-radius: var(--radius); width: 100%; }
+.manual-preset-grid { margin-bottom: 0; }
+.manual-video-area { grid-area: video; display: flex; align-items: center; justify-content: center; min-height: 0; }
+.manual-video-area .video-pane { aspect-ratio: 16 / 9; border-radius: var(--radius); width: 100%; max-height: 100%; height: auto; }
 .manual-cam-pick { display: flex; align-items: center; gap: 8px; font-size: .85rem; color: var(--muted); font-weight: 700; }
 .manual-cam-pick select { width: auto; }
 .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 16px; align-items: stretch; }
@@ -509,8 +531,9 @@ footer { margin-top: auto; padding: 0; color: var(--muted); font-size: .78rem; l
 @media (max-width: 1250px) {
   .preset-grid { grid-template-columns: repeat(2, minmax(260px, 1fr)); }
   .manual-layout-v2 { grid-template-columns: 1fr; grid-template-areas: "video" "controls" "presets"; }
-  .manual-controls-area { grid-template-columns: 1fr; }
+  .manual-controls-area { grid-template-columns: 1fr 1fr; }
   .manual-preset-buttons { grid-template-columns: repeat(4, 1fr); }
+  .preset-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .setup-grid, .atem-grid { grid-template-columns: 1fr; }
 }
 

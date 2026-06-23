@@ -43,6 +43,8 @@
     status: 'unknown',
     movement_speed: 'medium',
     preset_labels: Array.from({ length: MAX_PRESETS }, (_, i) => `Preset ${i + 1}`),
+    preset_speeds: Array.from({ length: MAX_PRESETS }, () => ''),
+    preset_thumbs: Array.from({ length: MAX_PRESETS }, () => ''),
     video: { ...DEFAULT_VIDEO },
   };
 
@@ -96,6 +98,8 @@
       incoming_port: 52382 + index,
       camera_ip: `192.168.51.${123 + index}`,
       preset_labels: [...DEFAULT_ROUTE.preset_labels],
+      preset_speeds: [...DEFAULT_ROUTE.preset_speeds],
+      preset_thumbs: [...DEFAULT_ROUTE.preset_thumbs],
       video: { ...DEFAULT_VIDEO },
     };
   }
@@ -178,6 +182,8 @@
       const existing = routes.find((r) => r.index === i) || routes[i];
       const route = { ...cloneDefaultRoute(i), ...(existing || {}), index: i };
       route.preset_labels = (route.preset_labels || []).concat(DEFAULT_ROUTE.preset_labels).slice(0, MAX_PRESETS);
+      route.preset_speeds = (route.preset_speeds || []).concat(Array.from({length: MAX_PRESETS}, () => '')).slice(0, MAX_PRESETS);
+      route.preset_thumbs = (route.preset_thumbs || []).concat(Array.from({length: MAX_PRESETS}, () => '')).slice(0, MAX_PRESETS);
       route.video = { ...DEFAULT_VIDEO, ...(route.video || {}) };
       padded.push(route);
     }
@@ -1075,6 +1081,8 @@ async function manualSavePreset(routeIndex, presetIndex) {
       status: block.dataset.status || 'unknown',
       movement_speed: state.routes[idx]?.movement_speed || 'medium',
       preset_labels: [...(state.routes[idx]?.preset_labels || DEFAULT_ROUTE.preset_labels)],
+      preset_speeds: [...(state.routes[idx]?.preset_speeds || DEFAULT_ROUTE.preset_speeds)],
+      preset_thumbs: [...(state.routes[idx]?.preset_thumbs || DEFAULT_ROUTE.preset_thumbs)],
       video,
     };
   }
