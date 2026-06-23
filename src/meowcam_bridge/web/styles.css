@@ -177,7 +177,7 @@ main { margin-top: 0; min-height: 0; }
 .preview-cell .video-pane { flex: 1; min-height: 0; }
 .preview-cell { display: flex; flex-direction: column; gap: 8px; }
 .preview-cell .preset-buttons { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
-.camera-preset-card .preset-btn { min-height: 56px; border-radius: 10px; }
+.camera-preset-card .preset-btn { min-height: 0; aspect-ratio: 16/10; border-radius: 10px; }
 .camera-preset-card .preset-btn strong { font-size: 2rem; }
 .camera-preset-card .preset-btn span { font-size: .78rem; line-height: 1.05; }
 /* click-to-enlarge: hide siblings, span enlarged cell full width */
@@ -270,14 +270,14 @@ main { margin-top: 0; min-height: 0; }
 .preset-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; flex: 1; min-height: 0; overflow: auto; }
 .camera-preset-card { padding: 10px; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
 .camera-preset-card .preset-video-pane { flex: 0 0 auto; aspect-ratio: 16/9; min-height: 100px; }
-.camera-preset-card .preset-buttons { flex: 1; min-height: 0; }
+.camera-preset-card .preset-buttons { flex: 1; min-height: 0; grid-template-rows: repeat(4, 1fr); }
 .camera-preset-card { padding: 12px; }
 .camera-preset-card.disabled { opacity: .72; }
 .camera-card-head { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; margin-bottom: 8px; }
 .camera-card-head h3 { margin: 0 0 2px; font-size: 1rem; }
 .camera-card-head p { margin: 0; color: var(--muted); font-size: .74rem; }
 .preset-buttons { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
-.camera-preset-card .preset-btn { min-height: 56px; border-radius: 10px; }
+.camera-preset-card .preset-btn { min-height: 0; aspect-ratio: 16/10; border-radius: 10px; }
 .camera-preset-card .preset-btn strong { font-size: 2rem; }
 .camera-preset-card .preset-btn span { font-size: .78rem; line-height: 1.05; }
 .preset-btn { min-height: 64px; border-radius: 16px; padding: .65rem; position: relative; overflow: hidden; display: grid; place-items: center; text-align: center; border: 1px solid var(--border); color: var(--text); background: rgba(255,255,255,.08); cursor: pointer; font-weight: 700; }
