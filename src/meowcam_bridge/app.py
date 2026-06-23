@@ -82,7 +82,16 @@ async def root() -> str:
     """Serve the embedded web UI."""
     html_path = pathlib.Path(__file__).with_suffix("").parent / "web" / "index.html"
     if html_path.exists():
-        return html_path.read_text(encoding="utf-8")
+        html = html_path.read_text(encoding="utf-8")
+        # Cache-bust: append version to static asset URLs
+        import hashlib
+        js_path = pathlib.Path(__file__).with_suffix("").parent / "web" / "app.js"
+        css_path = pathlib.Path(__file__).with_suffix("").parent / "web" / "styles.css"
+        js_hash = hashlib.md5(js_path.read_bytes()).hexdigest()[:8] if js_path.exists() else "0"
+        css_hash = hashlib.md5(css_path.read_bytes()).hexdigest()[:8] if css_path.exists() else "0"
+        html = html.replace("/static/styles.css", f"/static/styles.css?v={css_hash}")
+        html = html.replace("/static/app.js", f"/static/app.js?v={js_hash}")
+        return html
     return "<html><body><h1>MeowCam Bridge</h1><p>UI not found.</p></body></html>"
 
 
@@ -334,21 +343,59 @@ async def usb_devices() -> dict:
     """Discover available USB/HDMI capture devices."""
     import glob
     import os
+    import sys
     devices = []
-    for path in sorted(glob.glob('/dev/video*')):
+
+    if sys.platform == "win32":
+        # Windows: probe indices 0-9 with cv2.VideoCapture
         try:
-            st = os.stat(path)
-            minor = os.minor(st.st_rdev)
-            # Even minors are capture devices, odd are metadata
-            if minor % 2 == 0:
-                index = minor // 2
-                devices.append({
-                    "index": index,
-                    "label": f"Device {index}",
-                    "path": path,
-                })
-        except Exception:
+            import cv2
+            for idx in range(10):
+                cap = cv2.VideoCapture(idx)
+                if cap is not None and cap.isOpened():
+                    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+                    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+                    # Try to get a friendly name
+                    name = f"USB Device {idx}"
+                    try:
+                        backend_name = cap.getBackendName() if hasattr(cap, 'getBackendName') else ""
+                        if backend_name:
+                            name = f"Device {idx} ({backend_name})"
+                    except Exception:
+                        pass
+                    devices.append({
+                        "index": idx,
+                        "label": name,
+                        "width": w if w > 0 else None,
+                        "height": h if h > 0 else None,
+                        "path": None,
+                    })
+                    cap.release()
+                else:
+                    if cap is not None:
+                        cap.release()
+                    # Stop after first few consecutive failures past index 0
+                    if idx > 2:
+                        break
+        except ImportError:
             pass
+    else:
+        # Linux: enumerate /dev/video* devices
+        for path in sorted(glob.glob('/dev/video*')):
+            try:
+                st = os.stat(path)
+                minor = os.minor(st.st_rdev)
+                # Even minors are capture devices, odd are metadata
+                if minor % 2 == 0:
+                    index = minor // 2
+                    devices.append({
+                        "index": index,
+                        "label": f"Device {index}",
+                        "path": path,
+                    })
+            except Exception:
+                pass
+
     return {"devices": devices, "available": len(devices) > 0}
 
 
@@ -618,3 +665,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
