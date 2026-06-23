@@ -926,7 +926,10 @@ class BridgeCore:
         if seq is not None:
             self._internal_replies.setdefault(idx, set()).add(seq)
         self._log_event(f"[{route.label}] internal {reason}: {payload.hex()}")
-        sock.send(packet, (route.camera_ip, route.camera_port))
+        try:
+            sock.send(packet, (route.camera_ip, route.camera_port))
+        except Exception as exc:
+            logger.warning("Internal payload send failed (non-fatal): %s", exc)
 
     async def _inject_preset_speed_if_needed(
         self,
@@ -1010,10 +1013,15 @@ class BridgeCore:
                 import time
                 self._route_busy[route_index] = time.monotonic()
                 if command == "preset_recall":
-                    # MUST await — speed command must arrive BEFORE the recall
-                    await self._inject_preset_speed_if_needed(
-                        route_index, route, output_prof_live, payload, route_state, self._camera_sockets.get(route_index)
-                    )
+                    # MUST await — speed command must arrive BEFORE the recall.
+                    # Wrapped in try/except so a speed injection failure doesn't
+                    # prevent the actual preset recall from being sent.
+                    try:
+                        await self._inject_preset_speed_if_needed(
+                            route_index, route, output_prof_live, payload, route_state, self._camera_sockets.get(route_index)
+                        )
+                    except Exception as exc:
+                        logger.warning("Preset speed injection failed (non-fatal): %s", exc)
                 cmd = {
                     "payload": payload,
                     "payload_type": 0x0100,  # VISCA_COMMAND_TYPE
