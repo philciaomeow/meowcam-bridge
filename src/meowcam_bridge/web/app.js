@@ -75,6 +75,7 @@
     atem: null,            // {enabled, atem_ip, supersource_aux_output, input_mapping}
     atemConnected: false,
     tally: null,           // {pgm, pvw}
+    presetSelectedCam: undefined,  // which camera is selected on the presets page
   };
 
   // Per-route busy tracking (client-side mirror of server-side busy state)
@@ -396,8 +397,9 @@
       } else {
         state.lastPresets[String(route.index)] = presetNumber;
         persistPresetState();
-        renderPresets();
-        renderPreview();
+        // Update "last used" highlight without destroying/recreating video panes
+        document.querySelectorAll('.preset-buttons .preset-btn').forEach((b) => b.classList.remove('last-used'));
+        btn.classList.add('last-used');
         sendCommand(route.index, 'preset_recall', { preset: presetNumber, ...speedArgsFor(route.index) });
       }
     });
@@ -548,14 +550,23 @@
 
   function renderPresets() {
     const grid = $('#preset-grid');
+    const controlsArea = $('#preset-controls');
+    const buttonsBar = $('#preset-buttons-bar');
     if (!grid) return;
+
+    // Determine which camera is selected for the controls/buttons area
+    if (state.presetSelectedCam === undefined) {
+      const start = state.presetPage * 4;
+      state.presetSelectedCam = start; // default to first camera on page
+    }
+
+    // Render video area (2×2 grid)
     grid.innerHTML = '';
     const start = state.presetPage * 4;
     const routes = state.routes.slice(start, start + 4);
     routes.forEach((route) => {
-      const speedMode = speedModeFor(route.index);
       const card = document.createElement('article');
-      card.className = `camera-preset-card ${route.enabled ? '' : 'disabled'}`;
+      card.className = `camera-preset-card-v2 ${route.enabled ? '' : 'disabled'} ${state.presetSelectedCam === route.index ? 'selected' : ''}`;
       card.dataset.cam = String(route.index);
       card.innerHTML = `
         <div class="preset-video-pane video-pane off" data-cam="${route.index}">
@@ -565,25 +576,99 @@
           </div>
           <div class="video-off"><span class="cam-icon">📷</span></div>
         </div>
-        <div class="camera-card-head">
-          <div><h3>${escapeHtml(route.label)}</h3><p>${escapeHtml(route.camera_ip)} · controller in ${route.incoming_port}</p></div>
+        <div class="camera-card-v2-head">
+          <h3>${escapeHtml(route.label)}</h3>
           <span class="route-status ${escapeHtml(route.status || 'unknown')}">${route.enabled ? escapeHtml(route.status || 'unknown') : 'off'}</span>
         </div>
-        <div class="camera-speed-bar" role="group" aria-label="${escapeHtml(route.label)} movement speed">
-          ${Object.entries(SPEED_PRESETS).map(([mode, preset]) => `<button class="camera-speed ${mode === speedMode ? 'active' : ''}" data-speed="${mode}">${preset.label}</button>`).join('')}
-        </div>
-        <div class="preset-buttons"></div>
       `;
-      card.querySelectorAll('.camera-speed').forEach((btn) => {
-        btn.addEventListener('click', (event) => {
-          event.stopPropagation();
-          setCameraSpeed(route.index, btn.dataset.speed).catch((err) => alert(`Speed save failed: ${err.message}`));
-        });
+      card.addEventListener('click', () => {
+        state.presetSelectedCam = route.index;
+        renderPresets();
       });
-      const buttons = card.querySelector('.preset-buttons');
-      for (let i = 0; i < MAX_PRESETS; i += 1) buttons.appendChild(makePresetButton(route, i, speedMode));
       grid.appendChild(card);
     });
+
+    // Render controls area (speed + PTZ for selected camera)
+    if (controlsArea) {
+      const selRoute = state.routes[state.presetSelectedCam] || state.routes[start] || state.routes[0];
+      const speedMode = speedModeFor(selRoute?.index ?? 0);
+      controlsArea.innerHTML = `
+        <div class="control-card preset-speed-card">
+          <h3>${escapeHtml(selRoute?.label || 'Camera')}</h3>
+          <div class="camera-speed-bar" role="group" aria-label="Movement speed">
+            ${Object.entries(SPEED_PRESETS).map(([mode, preset]) => `<button class="camera-speed ${mode === speedMode ? 'active' : ''}" data-speed="${mode}">${preset.label}</button>`).join('')}
+          </div>
+        </div>
+        <div class="control-card preset-ptz-card">
+          <h3>Pan / Tilt</h3>
+          <div class="ptz-pad">
+            <button data-cmd="pan_left">◀</button>
+            <button data-cmd="tilt_up">▲</button>
+            <button data-cmd="tilt_down">▼</button>
+            <button data-cmd="pan_right">▶</button>
+            <button data-cmd="stop" class="stop">Stop</button>
+          </div>
+        </div>
+        <div class="control-card preset-lens-card">
+          <h3>Lens</h3>
+          <button data-cmd="zoom_in">Zoom In +</button>
+          <button data-cmd="zoom_out">Zoom Out −</button>
+          <button data-cmd="focus_near">Focus Near</button>
+          <button data-cmd="focus_far">Focus Far</button>
+        </div>
+        <div class="control-card preset-osd-card">
+          <h3>OSD Menu</h3>
+          <button data-cmd="menu_open">Menu Open</button>
+          <button data-cmd="menu_enter">Enter</button>
+          <button data-cmd="menu_back">Back</button>
+          <button data-cmd="menu_close">Menu Close</button>
+        </div>
+      `;
+      // Bind speed buttons
+      controlsArea.querySelectorAll('.camera-speed').forEach((btn) => {
+        btn.addEventListener('click', (event) => {
+          event.stopPropagation();
+          setCameraSpeed(selRoute.index, btn.dataset.speed).catch((err) => alert(`Speed save failed: ${err.message}`));
+        });
+      });
+      // Bind PTZ/lens/OSD buttons
+      controlsArea.querySelectorAll('button[data-cmd]').forEach((btn) => {
+        const raw = btn.dataset.cmd;
+        const command = raw === 'autofocus' ? 'autofocus_toggle' : raw;
+        if (isHoldToMoveCommand(command)) {
+          let activePointer = null;
+          const startMove = (event) => {
+            activePointer = event.pointerId;
+            btn.setPointerCapture(event.pointerId);
+            sendCommand(selRoute.index, command, commandArgs(command));
+          };
+          const stopMove = (event) => {
+            if (activePointer !== null && event.pointerId !== activePointer) return;
+            activePointer = null;
+            const stopCommand = command.startsWith('zoom_') ? 'zoom_stop' : command.startsWith('focus_') ? 'focus_stop' : 'stop';
+            sendCommand(selRoute.index, stopCommand, commandArgs(stopCommand));
+          };
+          btn.addEventListener('pointerdown', startMove);
+          btn.addEventListener('pointerup', stopMove);
+          btn.addEventListener('pointerleave', (event) => { if (activePointer !== null) stopMove(event); });
+        } else {
+          btn.addEventListener('click', () => {
+            sendCommand(selRoute.index, command, commandArgs(command));
+          });
+        }
+      });
+    }
+
+    // Render preset buttons bar (bottom, horizontal for selected camera)
+    if (buttonsBar) {
+      const selRoute = state.routes[state.presetSelectedCam] || state.routes[start] || state.routes[0];
+      const speedMode = speedModeFor(selRoute?.index ?? 0);
+      buttonsBar.innerHTML = '';
+      for (let i = 0; i < MAX_PRESETS; i += 1) {
+        buttonsBar.appendChild(makePresetButton(selRoute, i, speedMode));
+      }
+    }
+
     // Start/stop video feeds for preset panes
     syncPresetFeeds();
     $$('.preset-page-btn').forEach((btn) => btn.classList.toggle('active', Number(btn.dataset.page) === state.presetPage));
@@ -1245,16 +1330,14 @@
 
   /* Update preset button disabled state based on routeBusy */
   function updatePresetButtonsBusy() {
-    // Preset page buttons
-    document.querySelectorAll('.preset-buttons .preset-btn').forEach((btn) => {
-      const card = btn.closest('.camera-preset-card');
-      if (!card) return;
-      const ci = Number(card.dataset.cam);
+    // Preset page buttons (now in #preset-buttons-bar)
+    document.querySelectorAll('#preset-buttons-bar .preset-btn').forEach((btn) => {
+      const selRoute = state.routes[state.presetSelectedCam ?? 0];
+      const ci = selRoute?.index ?? 0;
       const isBusy = !!routeBusy[ci];
       btn.classList.toggle('busy', isBusy);
       if (isBusy) btn.disabled = true;
       else {
-        // Re-enable based on route enabled state (not in edit mode)
         const route = state.routes[ci];
         btn.disabled = state.presetEditMode ? false : (!route || !route.enabled);
       }
@@ -1274,10 +1357,10 @@
   }
 
   async function sendCommand(routeIndex, command, args = {}) {
+    const isPresetRecall = command === 'preset_recall';
     try {
       if (routeIndex === null || Number.isNaN(routeIndex)) return alert('Select a camera first.');
       // Check if this route is busy (only for preset_recall)
-      const isPresetRecall = command === 'preset_recall';
       if (isPresetRecall && routeBusy[routeIndex]) {
         showStatus(`${state.routes[routeIndex]?.label || 'Camera'} is still moving — please wait for confirmation`, false);
         return;
@@ -1419,6 +1502,7 @@
 
     $$('.preset-page-btn').forEach((btn) => btn.addEventListener('click', () => {
       state.presetPage = Number(btn.dataset.page);
+      state.presetSelectedCam = state.presetPage * 4; // reset to first camera on new page
       renderPresets();
     }));
     $$('.preview-page-btn').forEach((btn) => btn.addEventListener('click', () => {

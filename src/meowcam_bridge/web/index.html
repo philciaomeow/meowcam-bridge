@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MeowCam Bridge</title>
-<link rel="stylesheet" href="/static/styles.css?v=021">
+<link rel="stylesheet" href="/static/styles.css?v=022">
 </head>
 <body>
 <div class="app-shell">
@@ -59,7 +59,7 @@
       <div id="preview-grid" class="preview-grid"></div>
     </section>
 
-    <!-- ====================== PRESETS TAB (unchanged) ====================== -->
+    <!-- ====================== PRESETS TAB (redesigned) ====================== -->
     <section id="presets" class="tab-panel">
       <div class="section-head">
         <div>
@@ -73,7 +73,15 @@
           <button id="btn-edit-presets" class="accent">Edit preset names</button>
         </div>
       </div>
-      <div id="preset-grid" class="preset-grid"></div>
+      <div class="preset-layout-v2">
+        <div class="preset-video-area">
+          <div id="preset-grid" class="preset-grid-v2"></div>
+        </div>
+        <div class="preset-controls-area">
+          <div id="preset-controls" class="preset-controls-grid"></div>
+        </div>
+        <div id="preset-buttons-bar" class="preset-buttons-bar"></div>
+      </div>
     </section>
 
     <!-- ====================== MANUAL TAB (video hero added) ====================== -->
@@ -205,7 +213,7 @@
   </main>
   </div>
 </div>
-<script src="/static/app.js?v=021"></script>
+<script src="/static/app.js?v=022"></script>
 </body>
 </html>
 
