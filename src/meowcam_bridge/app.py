@@ -329,6 +329,29 @@ async def ndi_sources() -> dict:
         return {"sources": [], "available": False, "error": str(exc)}
 
 
+@app.get("/api/usb/devices")
+async def usb_devices() -> dict:
+    """Discover available USB/HDMI capture devices."""
+    import glob
+    import os
+    devices = []
+    for path in sorted(glob.glob('/dev/video*')):
+        try:
+            st = os.stat(path)
+            minor = os.minor(st.st_rdev)
+            # Even minors are capture devices, odd are metadata
+            if minor % 2 == 0:
+                index = minor // 2
+                devices.append({
+                    "index": index,
+                    "label": f"Device {index}",
+                    "path": path,
+                })
+        except Exception:
+            pass
+    return {"devices": devices, "available": len(devices) > 0}
+
+
 # ---------------------------------------------------------------------------
 # Network interfaces
 # ---------------------------------------------------------------------------

@@ -24,6 +24,7 @@ from typing import AsyncGenerator
 import cv2
 import numpy as np
 
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Base class
@@ -106,7 +107,9 @@ class VideoSource(abc.ABC):
             if x1 > x0 and y1 > y0:
                 frame = frame[y0:y1, x0:x1]
 
-        if width is not None and width > 0 and frame.shape[1] != width:
+        # Resize only if frame is LARGER than requested width.
+        # Never upscale cropped regions — that causes the zoomed-in look.
+        if width is not None and width > 0 and frame.shape[1] > width:
             h, w = frame.shape[:2]
             new_h = int(h * (width / w))
             frame = cv2.resize(frame, (width, new_h), interpolation=cv2.INTER_AREA)
@@ -348,6 +351,110 @@ class USBCaptureSource(VideoSource):
 # ---------------------------------------------------------------------------
 # MJPEG streaming helpers
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Shared USB capture (multiple routes can share one device)
+# ---------------------------------------------------------------------------
+
+class _SharedUSBPool:
+    """Singleton pool of shared USB capture devices."""
+    _instance = None
+    _lock = threading.Lock()
+    
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._devices = {}
+        return cls._instance
+    
+    def get_device(self, device_index: int, backend: int | None = None):
+        key = (device_index, backend)
+        if key not in self._devices:
+            cap = cv2.VideoCapture(device_index, backend or cv2.CAP_V4L2)
+            if not cap.isOpened():
+                raise RuntimeError(f"Cannot open USB capture device: {device_index}")
+            self._devices[key] = {
+                'cap': cap,
+                'lock': threading.Lock(),
+                'frame': None,
+                'refs': 0,
+                'thread': None,
+                'running': False,
+            }
+            self._start_capture(key)
+        self._devices[key]['refs'] += 1
+        return self._devices[key]
+    
+    def _start_capture(self, key):
+        dev = self._devices[key]
+        dev['running'] = True
+        def capture_loop():
+            while dev['running']:
+                ret, frame = dev['cap'].read()
+                if ret:
+                    with dev['lock']:
+                        dev['frame'] = frame.copy()
+        dev['thread'] = threading.Thread(target=capture_loop, daemon=True)
+        dev['thread'].start()
+    
+    def release_device(self, device_index: int, backend: int | None = None):
+        key = (device_index, backend)
+        if key in self._devices:
+            self._devices[key]['refs'] -= 1
+            if self._devices[key]['refs'] <= 0:
+                self._devices[key]['running'] = False
+                self._devices[key]['thread'].join(timeout=1.0)
+                self._devices[key]['cap'].release()
+                del self._devices[key]
+    
+    def get_frame(self, device_index: int, backend: int | None = None):
+        key = (device_index, backend)
+        if key not in self._devices:
+            return None
+        with self._devices[key]['lock']:
+            return self._devices[key]['frame'].copy() if self._devices[key]['frame'] is not None else None
+
+
+class SharedUSBCaptureSource(VideoSource):
+    """USB capture source that shares the device with other routes.
+    
+    Use this when multiple cameras need to show different crops/regions
+    of the same HDMI capture feed (e.g., 2x2 multiview grid).
+    """
+    
+    def __init__(
+        self,
+        device: int = 0,
+        backend: int | None = None,
+        route_label: str = "Camera",
+    ) -> None:
+        super().__init__(route_label)
+        self.device = device
+        self.backend = backend
+        self._pool = _SharedUSBPool()
+        self._dev = None
+    
+    def start(self) -> None:
+        if self._running:
+            return
+        self._dev = self._pool.get_device(self.device, self.backend)
+        super().start()
+    
+    def stop(self) -> None:
+        super().stop()
+        if self._dev:
+            self._pool.release_device(self.device, self.backend)
+            self._dev = None
+    
+    def _capture_loop(self) -> None:
+        while self._running:
+            frame = self._pool.get_frame(self.device, self.backend)
+            if frame is not None:
+                self._store_frame(frame)
+            time.sleep(0.001)  # Small sleep to prevent busy-waiting
+
 
 async def mjpeg_generator(
     source: VideoSource,

@@ -699,19 +699,44 @@
                 <button type="button" class="ndi-discover-btn" data-action="ndi-discover">🔍 Discover</button>
               </div>
             </div>
-            <div class="field"><label>USB device index</label><input data-v="usb_device_index" type="number" min="0" max="15" value="${v.usb_device_index ?? 0}"></div>
-            <div class="field"><label>Resolution</label><select data-v="resolution">${optionsHtml(resolutionList(), v.resolution || '640x360')}</select></div>
+            <div class="field usb-field" style="display:${v.source_type === 'usb' ? 'block' : 'none'}"><label>USB device</label><select data-v="usb_device_index" class="usb-select"><option value="0">Device 0</option></select></div>
             <div class="field"><label>Frame rate</label><input data-v="frame_rate" type="number" min="1" max="30" value="${v.frame_rate ?? 8}"></div>
             <div class="field"><label>JPEG quality</label><input data-v="jpeg_quality" type="number" min="10" max="95" value="${v.jpeg_quality ?? 60}"></div>
+            <div class="field"><label>Output Resolution (preview size)</label><select data-v="resolution">${optionsHtml(resolutionList(), v.resolution || '640x360')}</select></div>
             <div class="field crop-field">
-              <label>Crop / Region <small>(share NDI feed, show different parts)</small></label>
-              <div class="crop-grid">
-                <div><label>X%</label><input data-v="crop_x" type="number" min="0" max="100" step="1" value="${Math.round((v.crop_x ?? 0) * 100)}"></div>
-                <div><label>Y%</label><input data-v="crop_y" type="number" min="0" max="100" step="1" value="${Math.round((v.crop_y ?? 0) * 100)}"></div>
-                <div><label>W%</label><input data-v="crop_w" type="number" min="0" max="100" step="1" value="${Math.round((v.crop_w ?? 0) * 100)}"></div>
-                <div><label>H%</label><input data-v="crop_h" type="number" min="0" max="100" step="1" value="${Math.round((v.crop_h ?? 0) * 100)}"></div>
+              <label>📹 Crop / Region <small>(share one NDI feed across cameras)</small></label>
+              <div class="crop-presets">
+                ${(() => {
+                  const cx = Math.round((v.crop_x ?? 0) * 100);
+                  const cy = Math.round((v.crop_y ?? 0) * 100);
+                  const cw = Math.round((v.crop_w ?? 0) * 100);
+                  const ch = Math.round((v.crop_h ?? 0) * 100);
+                  const presets = [
+                    { id: 'full', label: 'Full Frame',  icon: '⬜', x: 0,  y: 0,  w: 0,  h: 0  },
+                    { id: 'tl',   label: 'Top Left',    icon: '◰', x: 0,  y: 0,  w: 50, h: 50 },
+                    { id: 'tr',   label: 'Top Right',   icon: '◳', x: 50, y: 0,  w: 50, h: 50 },
+                    { id: 'bl',   label: 'Bottom Left', icon: '◱', x: 0,  y: 50, w: 50, h: 50 },
+                    { id: 'br',   label: 'Bottom Right',icon: '◲', x: 50, y: 50, w: 50, h: 50 },
+                  ];
+                  const active = presets.find(p =>
+                    Math.abs(p.x - cx) < 1 && Math.abs(p.y - cy) < 1 &&
+                    Math.abs(p.w - cw) < 1 && Math.abs(p.h - ch) < 1
+                  ) || {id:''};
+                  return presets.map(p => `
+                    <button type="button" class="crop-preset-btn ${p.id === active.id ? 'active' : ''}"
+                      data-crop="${p.id}"
+                      data-cx="${p.x}" data-cy="${p.y}" data-cw="${p.w}" data-ch="${p.h}"
+                      title="${p.label}">
+                      <span class="crop-icon">${p.icon}</span>
+                      <span class="crop-label-sm">${p.label}</span>
+                    </button>
+                  `).join('');
+                })()}
               </div>
-              <small class="crop-hint">All 0 = full frame. E.g. W=50 H=50 shows top-left quadrant.</small>
+              <input data-v="crop_x" type="hidden" value="${Math.round((v.crop_x ?? 0) * 100)}">
+              <input data-v="crop_y" type="hidden" value="${Math.round((v.crop_y ?? 0) * 100)}">
+              <input data-v="crop_w" type="hidden" value="${Math.round((v.crop_w ?? 0) * 100)}">
+              <input data-v="crop_h" type="hidden" value="${Math.round((v.crop_h ?? 0) * 100)}">
             </div>
           </div>
         </div>
@@ -736,6 +761,41 @@
       // NDI discover button
       block.querySelector('.ndi-discover-btn')?.addEventListener('click', () => {
         discoverNdi(block).catch((err) => alert(`NDI discovery failed: ${err.message}`));
+      });
+      // USB field visibility and discovery
+      const usbField = block.querySelector('.usb-field');
+      const sourceType = block.querySelector('[data-v="source_type"]');
+      if (usbField && sourceType) {
+        usbField.style.display = sourceType.value === 'usb' ? 'block' : 'none';
+        if (sourceType.value === 'usb') {
+          discoverUsb(block);
+        }
+        sourceType.addEventListener('change', () => {
+          usbField.style.display = sourceType.value === 'usb' ? 'block' : 'none';
+          if (sourceType.value === 'usb') {
+            discoverUsb(block);
+          }
+        });
+      }
+      // Crop preset buttons
+      block.querySelectorAll('.crop-preset-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const cx = parseFloat(btn.dataset.cx);  // already 0-100
+          const cy = parseFloat(btn.dataset.cy);
+          const cw = parseFloat(btn.dataset.cw);
+          const ch = parseFloat(btn.dataset.ch);
+          const setHidden = (field, val) => {
+            const el = block.querySelector(`[data-v="${field}"]`);
+            if (el) el.value = val;
+          };
+          setHidden('crop_x', cx); setHidden('crop_y', cy);
+          setHidden('crop_w', cw); setHidden('crop_h', ch);
+          // Update active button styling
+          block.querySelectorAll('.crop-preset-btn').forEach((b) => b.classList.remove('active'));
+          btn.classList.add('active');
+          state.editing = true;
+          showStatus(`Crop set to ${btn.title}`, true);
+        });
       });
       wrap.appendChild(block);
     });
@@ -776,6 +836,33 @@
       }
     } finally {
       if (btn) { btn.disabled = false; btn.textContent = '🔍 Discover'; }
+    }
+  }
+
+  async function discoverUsb(block) {
+    const sel = block.querySelector('.usb-select');
+    if (!sel) return;
+    try {
+      const res = await request('/api/usb/devices');
+      const current = sel.value;
+      sel.innerHTML = '';
+      if (!res.available || !res.devices.length) {
+        const opt = document.createElement('option');
+        opt.value = '0';
+        opt.textContent = res.error || 'No USB devices found';
+        opt.disabled = true;
+        sel.appendChild(opt);
+      } else {
+        res.devices.forEach((dev) => {
+          const opt = document.createElement('option');
+          opt.value = dev.index;
+          opt.textContent = dev.label;
+          sel.appendChild(opt);
+        });
+        if (current) sel.value = current;
+      }
+    } catch (err) {
+      console.error('USB discovery failed:', err);
     }
   }
 
@@ -1227,3 +1314,4 @@
   }, 15000);
   setInterval(pollTally, 500);
 })();
+

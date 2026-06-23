@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 import cv2
 
 from .config import CameraVideo
-from .video import VideoSource, TestPatternSource, NDISource, USBCaptureSource
+from .video import VideoSource, TestPatternSource, NDISource, USBCaptureSource, SharedUSBCaptureSource
 
 if TYPE_CHECKING:
     from .config import BridgeConfig
@@ -123,7 +123,9 @@ class VideoSourceManager:
                 if sys.platform == "win32":
                     backend = cv2.CAP_DSHOW
                 try:
-                    return USBCaptureSource(
+                    # Use shared USB capture so multiple routes can share
+                    # the same device with different crops (e.g., 2x2 multiview)
+                    return SharedUSBCaptureSource(
                         device=cfg.usb_device_index,
                         backend=backend,
                         route_label=label,
@@ -171,12 +173,24 @@ class VideoSourceManager:
                 source.set_crop(*new_crop)
                 logger.info("Crop updated for route %d (no restart needed)", idx)
 
+            # Detect source TYPE changes (e.g. testpattern → ndi)
+            current_type = None
             if isinstance(source, TestPatternSource):
-                # Test pattern: check resolution and label
+                current_type = "testpattern"
+            elif hasattr(source, 'source_name'):
+                current_type = "ndi"
+            else:
+                current_type = "usb"
+
+            if current_type != new_video.source_type:
+                needs_restart = True
+            elif not new_video.enabled:
+                # Video was disabled — stop the source
+                needs_restart = True
+            elif isinstance(source, TestPatternSource):
                 if old_route_label != route.label:
                     needs_restart = True
             elif hasattr(source, 'source_name'):  # NDISource
-                # NDI: check source name, label
                 if source.source_name != (new_video.ndi_source_name or None):
                     needs_restart = True
                 if old_route_label != route.label:
@@ -218,3 +232,4 @@ class VideoSourceManager:
     def config(self, value: BridgeConfig) -> None:
         self._config = value
         self.on_config_changed()
+

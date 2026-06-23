@@ -331,34 +331,46 @@ footer { margin-top: auto; padding: 0; color: var(--muted); font-size: .78rem; l
 
 /* Crop / Region selection */
 .crop-field { grid-column: 1 / -1; }
-.crop-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
+.crop-presets {
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
-  margin-top: 4px;
+  margin-top: 6px;
 }
-.crop-grid > div {
+.crop-preset-btn {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-}
-.crop-grid label {
-  font-size: 0.72rem;
-  color: var(--muted);
-}
-.crop-grid input {
-  width: 100%;
-  padding: 6px 8px;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 12px;
   background: var(--panel-strong);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--text);
-  font-size: 0.85rem;
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  min-width: 72px;
 }
-.crop-hint {
-  display: block;
-  margin-top: 4px;
-  font-size: 0.72rem;
+.crop-preset-btn:hover {
+  border-color: var(--accent, #6c8);
+  transform: translateY(-2px);
+}
+.crop-preset-btn.active {
+  border-color: var(--accent, #4a9);
+  background: var(--accent-dim, rgba(68,170,153,0.15));
+  box-shadow: 0 0 0 1px var(--accent, #4a9);
+}
+.crop-preset-btn .crop-icon {
+  font-size: 1.4rem;
+  line-height: 1;
+}
+.crop-preset-btn .crop-label-sm {
+  font-size: 0.68rem;
   color: var(--muted);
-  line-height: 1.4;
+  text-align: center;
+  white-space: nowrap;
 }
+.crop-preset-btn.active .crop-label-sm {
+  color: var(--text);
+  font-weight: 600;
+}
+

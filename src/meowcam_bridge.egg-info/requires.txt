@@ -2,6 +2,7 @@ fastapi>=0.110
 uvicorn[standard]>=0.29
 pydantic>=2.0
 pydantic-settings>=2.0
+PyATEMMax>=1.0b9
 
 [build]
 pyinstaller>=6.0
