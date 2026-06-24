@@ -71,7 +71,9 @@ def _save_config() -> None:
     if _bridge is not None and _config_path is not None:
         _bridge.config.save(_config_path)
     if _video_manager is not None:
-        _video_manager.on_config_changed()
+        # Sync the config reference — the setter calls on_config_changed()
+        # which handles both new routes and changed existing sources
+        _video_manager.config = _bridge.config
 
 
 # ---------------------------------------------------------------------------
