@@ -29,6 +29,13 @@ Made by the **meow team** as a MeowWorks onsite starter app.
 | **LIVE indicator** | Red border for PGM (program), green border for PVW (preview) via ATEM tally |
 | **ATEM integration** | SuperSource 2×2 quadrant mapping, PGM/PVW tally, AUX routing |
 | **System tray app** | Windows tray icon with "Open Control Surface" and "Close Server" — no command window |
+| **Preset thumbnails** | Capture a snapshot of the current camera view when saving a preset. Shown as 50% opacity background image on the preset button with number, name, and speed indicator overlaid |
+| **Per-preset speed** | Each preset stores its own slow/medium/fast speed, applied when recalling. Speed indicators (›/››/›››) shown on buttons |
+| **Preset range toggle** | Split 16 presets into two pages: 1–8 and 9–16. Toggle button in toolbar on both preset and manual pages |
+| **Manual page v2 layout** | Video preview left, PTZ/lens/OSD controls right (2×2 grid), preset buttons along bottom. Auto-sizes to fill viewport |
+| **Save Mode** | Toggle on manual page to switch preset buttons between recall (normal) and save (red highlight). Click a preset in save mode to open a dialog with name, speed, and snapshot capture options |
+| **Busy state locking** | Per-camera busy locking prevents crash when clicking a second preset while camera is still moving. Buttons show ⏳ and pulse while busy. Auto-clears when camera sends completion reply |
+| **Auto-sizing layout** | CSS flex layout fills the browser viewport without scrollbars. Adapts to any screen resolution. Preset buttons use 16:10 aspect ratio to match camera previews |
 
 ## Key features
 
@@ -142,6 +149,8 @@ ATEM Switcher (TCP)  →  ATEM Module (tally + SuperSource)
 meowcam-bridge/
   pyproject.toml
   README.md
+  CHANGELOG.md           # Version history and fix log
+  PROJECT_STATE.md       # Current project status, known issues, architecture notes
   SETUP.md              # Onsite operator guide
   PACKAGING.md          # Developer packaging guide
   build_windows.py      # One-command Windows .exe build
@@ -195,6 +204,8 @@ Config is a JSON file (auto-created as `meowcam-bridge.json` if missing). Up to 
 - `camera_ip`, `camera_port` — target camera address
 - `movement_speed` — `slow`, `medium`, or `fast` (persists to config)
 - `preset_labels` — up to 16 preset names
+- `preset_speeds` — up to 16 per-preset speed overrides (`slow`/`medium`/`fast`/empty)
+- `preset_thumbs` — up to 16 per-preset thumbnail data URLs (small JPEG snapshots)
 - `video` — video source config: `enabled`, `source_type` (`ndi`/`usb`/`testpattern`), `source_name` (NDI), `usb_device_index` (USB), `resolution`, crop fields (`crop_x`/`crop_y`/`crop_w`/`crop_h` as 0.0–1.0 fractions)
 
 ## Profiles
